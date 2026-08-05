@@ -1,0 +1,11 @@
+[package]
+name = "tpt-audio-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tpt-audio-core = { path = "../core" }
+eframe = "0.31"
+egui = "0.31"

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for tpt-audio (used by Flathub, GNOME Software, etc.) -->
+<component type="desktop-application">
+  <id>io.github.tptsolutions.tptaudio</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>tpt-audio</name>
+  <summary>Visual audio routing matrix and virtual mixer</summary>
+
+  <description>
+    <p>
+      tpt-audio is a simple, modern audio router and virtual mixer with a
+      drag-and-drop routing matrix and per-app volume control.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Route any source (microphone, app audio, input) to any sink.</li>
+      <li>Per-route gain and mute.</li>
+      <li>Per-app volume control.</li>
+      <li>Save, load, import, and export routing presets.</li>
+    </ul>
+    <p>
+      On Linux it is a frontend for PipeWire. On Windows it uses WASAPI.
+      Archon support is research-gated behind a capability model.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.tptsolutions.tptaudio.desktop</launchable>
+
+  <url type="homepage">https://github.com/tpt-solutions/tpt-audio</url>
+  <url type="bugtracker">https://github.com/tpt-solutions/tpt-audio/issues</url>
+
+  <developer id="io.github.tptsolutions">
+    <name>TPT Solutions</name>
+  </developer>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.0.0" date="2026-08-05">
+      <description>
+        <p>First stable release: routing matrix, per-app volume, presets, diagnostics.</p>
+      </description>
+    </release>
+  </releases>
+</component>

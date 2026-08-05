@@ -1,0 +1,7 @@
+Simple, Modern Audio Router & Virtual Mixer (tpt-audio)
+The Problem: Voicemeeter (Windows) is complex and buggy. PulseAudio/JACK (Linux) setups can be a nightmare for average users wanting to route specific app audio to specific outputs/mics.
+The TPT Solution: A visual, drag-and-drop audio routing matrix with zero-latency, low CPU usage, and per-app volume control.
+
+Compatible on Windows, Linux and Archon. https://github.com/tpt-solutions/tpt-archon
+
+🐧 Linux & Archon Compatibility: Integrates seamlessly as a frontend for PipeWire on Linux. On Archon, it hooks directly into the microkernel’s zero-copy IPC audio server. Audio streams are routed as shared memory buffers, and apps are strictly prevented from capturing system audio unless explicitly granted the AUDIO_CAPTURE capability by the user.

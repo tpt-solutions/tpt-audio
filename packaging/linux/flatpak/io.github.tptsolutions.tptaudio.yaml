@@ -1,0 +1,34 @@
+id: io.github.tptsolutions.tptaudio
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: tpt-audio-desktop
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=all
+  - --filesystem=home
+  - --talk-name=org.freedesktop.pipewire
+  - --talk-name=org.freedesktop.portal
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/tpt-audio/cargo
+    RUSTFLAGS: '-C link-arg=-fuse-ld=gold'
+modules:
+  - name: tpt-audio
+    buildsystem: simple
+    build-options:
+      env:
+        APP_ID: io.github.tptsolutions.tptaudio
+    build-commands:
+      - cargo build --release --offline
+      - install -Dm755 target/release/tpt-audio-desktop /app/bin/tpt-audio-desktop
+      - install -Dm644 packaging/linux/io.github.tptsolutions.tptaudio.desktop /app/share/applications/io.github.tptsolutions.tptaudio.desktop
+      - install -Dm644 packaging/linux/io.github.tptsolutions.tptaudio.metainfo.xml /app/share/metainfo/io.github.tptsolutions.tptaudio.metainfo.xml
+    sources:
+      - type: dir
+        path: /run/build/tpt-audio/sources
