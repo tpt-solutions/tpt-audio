@@ -1,0 +1,488 @@
+# tpt-audio
+
+**A memory-safe, real-time, non-destructive audio processing engine with hardware I/O. The brain of the TPT AV audio stack.**
+
+**License:** MIT  
+**Status:** Early-stage / Pre-1.0  
+**Ecosystem:** [TPT Solutions Open Source](https://opensource.tptsolutions.co.nz/)
+
+---
+
+## 1. Vision & Philosophy
+
+`tpt-audio` is the **audio processing layer** of the TPT AV Stack. It provides the foundational crates required to build non-destructive audio editors, DAWs, podcast tools, and game audio middleware.
+
+The Rust audio ecosystem has excellent primitives (`cpal` for I/O, `nih-plug` for plugins, `rubato` for resampling) but **no unified framework** that connects them. There is no standard way to represent a non-destructive edit, no lock-free mixer graph that reads from a timeline, and no clean boundary between the UI thread and the audio thread.
+
+`tpt-audio` fills that gap. It is the "glue" that turns raw PCM from `tpt-cadence` into a professional, non-destructive audio application.
+
+### Core Tenets
+
+1. **Strictly Non-Destructive:** The original audio files on disk are never mutated. The engine only manages metadata, edit decisions, and real-time mathematical transformations.
+2. **Real-Time Safe:** The audio processing thread is guaranteed to be lock-free and allocation-free (no heap allocations during the audio callback) to prevent dropouts and clicks.
+3. **Clean Thread Boundaries:** Strict separation between the Main/UI Thread (can allocate, can block) and the Audio Thread (cannot allocate, cannot block, cannot panic).
+4. **Pure MIT Licensing:** No GPL/LGPL/MPL dependencies. Enforced via `cargo-deny` in CI.
+5. **Composable Architecture:** Each sub-crate is independently useful. A developer can use just the timeline, just the mixer, or just the I/O layer.
+
+---
+
+## 2. Ecosystem Integration
+
+`tpt-audio` sits in the **Processing Layer** of the TPT AV Stack, consuming decoded audio from `tpt-cadence` and outputting to hardware via its own I/O layer.
+
+| Crate | Role | Relationship to `tpt-audio` |
+| :--- | :--- | :--- |
+| **`tpt-cadence`** | Audio codecs | Decodes audio files into raw PCM `f32` samples. `tpt-audio` consumes this PCM. |
+| **`tpt-audio`** | **Audio processing + I/O (this repo)** | Manages the non-destructive timeline, mixes audio in real-time, and routes it to hardware. |
+| **`tpt-kinetix`** | Media containers, video codecs | Demuxes containers (MP4, MKV) and extracts audio packets. Passes them to `tpt-cadence` for decoding, then to `tpt-audio` for processing. |
+
+### Data Flow
+tpt-cadence (decodes audio files → raw PCM f32)
+↓
+tpt-av-audio-timeline (manages non-destructive edit state)
+↓
+tpt-av-audio-core (real-time mixer graph, applies effects)
+↓
+tpt-av-audio-io (routes final buffer to OS audio hardware)
+
+
+---
+
+## 3. Repository Architecture (Cargo Workspace)
+
+All sub-crates share the `tpt-av-audio-` prefix for ecosystem coherence and clean namespace resolution on crates.io.
+
+```text
+tpt-audio/                        # GitHub Repository / Workspace Root
+├── Cargo.toml                    # Workspace manifest
+├── deny.toml                     # cargo-deny license audit config
+├── LICENSE-MIT
+├── README.md
+├── DESIGN.md                     # This file
+│
+├── tpt-av-audio-utils/           # Shared types, math helpers, error handling
+│   ├── src/
+│   │   ├── lib.rs
+│   │   ├── sample.rs             # Sample types (f32, i16, etc.)
+│   │   ├── buffer.rs             # Audio buffer abstractions
+│   │   ├── time.rs               # Time/duration types (frames, seconds, samples)
+│   │   └── error.rs              # `AudioError` enum
+│   └── Cargo.toml
+│
+├── tpt-av-audio-timeline/        # Pure data model. Non-destructive edit state.
+│   ├── src/
+│   │   ├── lib.rs
+│   │   ├── session.rs            # Top-level session (collection of tracks)
+│   │   ├── track.rs              # Track (collection of clips)
+│   │   ├── clip.rs               # Clip (reference to audio asset + time range)
+│   │   ├── asset.rs              # AudioAsset (file path, duration, sample rate)
+│   │   ├── envelope.rs           # Automation envelopes (volume, pan, custom)
+│   │   ├── edit.rs               # Edit operations (insert, delete, move, split)
+│   │   └── history.rs            # Undo/redo history
+│   ├── Cargo.toml
+│   └── tests/
+│
+├── tpt-av-audio-core/            # Real-time mixer graph and DSP
+│   ├── src/
+│   │   ├── lib.rs
+│   │   ├── graph.rs              # Audio processing graph (nodes, edges)
+│   │   ├── mixer.rs              # Multi-track mixer
+│   │   ├── renderer.rs           # Reads timeline state, renders audio
+│   │   ├── dsp/                  # Built-in DSP effects
+│   │   │   ├── gain.rs
+│   │   │   ├── pan.rs
+│   │   │   ├── fade.rs
+│   │   │   └── resample.rs       # Sample rate conversion (wraps rubato)
+│   │   └── scheduler.rs          # Lock-free state synchronization
+│   ├── Cargo.toml
+│   └── tests/
+│
+├── tpt-av-audio-io/              # OS audio I/O and hardware routing
+│   ├── src/
+│   │   ├── lib.rs
+│   │   ├── device.rs             # Device enumeration and selection
+│   │   ├── stream.rs             # Audio stream management (input/output)
+│   │   ├── backend/              # Platform-specific backends
+│   │   │   ├── wasapi.rs         # Windows
+│   │   │   ├── coreaudio.rs      # macOS
+│   │   │   └── pipewire.rs       # Linux
+│   │   └── router.rs             # Virtual audio routing (future)
+│   ├── Cargo.toml
+│   └── tests/
+│
+├── tpt-av-audio-plugin/          # VST3/CLAP plugin hosting (future)
+│   ├── src/
+│   ├── Cargo.toml
+│   └── tests/
+│
+└── examples/                     # Headless CLI renderers and demos
+    ├── headless_render.rs        # Renders a timeline JSON to WAV
+    ├── simple_player.rs          # Plays a single audio file
+    └── mixer_demo.rs             # Mixes multiple tracks
+
+4. Core API Design
+4.1. The Timeline Model (tpt-av-audio-timeline)
+The timeline is the pure data model of a non-destructive edit. It does not process audio; it only describes what audio should be played, when, and how.
+
+/// A complete audio editing session.
+pub struct Session {
+    /// Unique session identifier.
+    pub id: SessionId,
+    /// Session name (e.g., "My Podcast Episode 1").
+    pub name: String,
+    /// Sample rate for the entire session (e.g., 44100, 48000).
+    pub sample_rate: u32,
+    /// All tracks in the session.
+    pub tracks: Vec<Track>,
+    /// Global metadata (tempo, time signature, etc.).
+    pub metadata: SessionMetadata,
+}
+
+/// A single track containing multiple clips.
+pub struct Track {
+    /// Unique track identifier.
+    pub id: TrackId,
+    /// Track name (e.g., "Vocals", "Guitar").
+    pub name: String,
+    /// All clips on this track, sorted by start time.
+    pub clips: Vec<Clip>,
+    /// Track-level volume (0.0 = silent, 1.0 = unity gain).
+    pub volume: f32,
+    /// Track-level pan (-1.0 = left, 0.0 = center, 1.0 = right).
+    pub pan: f32,
+    /// Whether the track is muted.
+    pub muted: bool,
+    /// Whether the track is soloed.
+    pub soloed: bool,
+}
+
+/// A non-destructive reference to an audio asset.
+pub struct Clip {
+    /// Unique clip identifier.
+    pub id: ClipId,
+    /// Reference to the source audio asset.
+    pub asset_id: AssetId,
+    /// Start time of the clip on the timeline (in frames).
+    pub start_frame: u64,
+    /// Offset into the source asset (in frames).
+    /// Allows trimming the beginning of the asset.
+    pub source_offset: u64,
+    /// Duration of the clip (in frames).
+    pub duration_frames: u64,
+    /// Clip-level volume envelope (optional).
+    pub volume_envelope: Option<Envelope>,
+    /// Clip-level pan envelope (optional).
+    pub pan_envelope: Option<Envelope>,
+    /// Fade-in duration (in frames).
+    pub fade_in_frames: u64,
+    /// Fade-out duration (in frames).
+    pub fade_out_frames: u64,
+}
+
+/// A reference to an audio file on disk.
+pub struct AudioAsset {
+    /// Unique asset identifier.
+    pub id: AssetId,
+    /// File path to the source audio file.
+    pub file_path: PathBuf,
+    /// Duration of the asset (in frames).
+    pub duration_frames: u64,
+    /// Sample rate of the asset.
+    pub sample_rate: u32,
+    /// Number of channels in the asset.
+    pub channels: u16,
+}
+
+/// An automation envelope (volume, pan, or custom parameter).
+pub struct Envelope {
+    /// List of control points (time, value).
+    pub points: Vec<EnvelopePoint>,
+    /// Interpolation method (linear, cubic, step).
+    pub interpolation: InterpolationMethod,
+}
+
+/// A single point on an envelope.
+pub struct EnvelopePoint {
+    /// Time position (in frames).
+    pub frame: u64,
+    /// Value at this point (e.g., 0.0 to 1.0 for volume).
+    pub value: f32,
+}
+
+4.2. The Audio Graph (tpt-av-audio-core)
+The audio graph is the real-time processing engine. It reads the timeline state and renders audio buffers.
+
+/// The main audio processing graph.
+pub struct AudioGraph {
+    /// All processing nodes (mixers, effects, etc.).
+    nodes: Vec<Box<dyn AudioNode>>,
+    /// Connections between nodes.
+    edges: Vec<AudioEdge>,
+    /// Current sample rate.
+    sample_rate: u32,
+    /// Current buffer size (frames per callback).
+    buffer_size: usize,
+}
+
+/// A single processing node in the audio graph.
+pub trait AudioNode: Send + Sync {
+    /// Processes a buffer of audio samples.
+    ///
+    /// # Real-Time Safety
+    ///
+    /// This method MUST be allocation-free, lock-free, and panic-free.
+    fn process(&mut self, buffer: &mut AudioBuffer) -> Result<(), AudioError>;
+
+    /// Returns the number of input channels.
+    fn input_channels(&self) -> u16;
+
+    /// Returns the number of output channels.
+    fn output_channels(&self) -> u16;
+}
+
+/// A buffer of interleaved audio samples.
+pub struct AudioBuffer {
+    /// Interleaved f32 samples in the range [-1.0, 1.0].
+    pub data: Vec<f32>,
+    /// Number of frames (samples / channels).
+    pub frames: usize,
+    /// Number of channels.
+    pub channels: u16,
+}
+
+/// The timeline renderer. Reads timeline state and renders audio.
+pub struct TimelineRenderer {
+    /// Reference to the timeline session.
+    session: Arc<RwLock<Session>>,
+    /// Audio assets (decoded PCM caches).
+    assets: HashMap<AssetId, AudioAssetCache>,
+    /// Current playhead position (in frames).
+    playhead_frame: u64,
+}
+
+impl TimelineRenderer {
+    /// Renders the next buffer of audio from the timeline.
+    ///
+    /// # Real-Time Safety
+    ///
+    /// This method is called from the audio thread. It MUST be allocation-free.
+    pub fn render(&mut self, buffer: &mut AudioBuffer) -> Result<(), AudioError> {
+        // 1. Read timeline state (lock-free snapshot)
+        // 2. For each active clip, fetch PCM from asset cache
+        // 3. Apply clip envelopes (volume, pan, fades)
+        // 4. Mix all clips into the buffer
+        // 5. Advance playhead
+        todo!()
+    }
+}
+
+4.3. The I/O Layer (tpt-av-audio-io)
+The I/O layer handles OS audio APIs and device routing. This is the absorbed code from the existing tpt-audio repo.
+
+/// Represents an audio device (input or output).
+pub struct AudioDevice {
+    /// Unique device identifier.
+    pub id: DeviceId,
+    /// Device name (e.g., "Built-in Output", "Focusrite USB").
+    pub name: String,
+    /// Number of input channels.
+    pub input_channels: u16,
+    /// Number of output channels.
+    pub output_channels: u16,
+    /// Supported sample rates.
+    pub sample_rates: Vec<u32>,
+    /// Supported buffer sizes.
+    pub buffer_sizes: Vec<usize>,
+}
+
+/// An active audio stream (input or output).
+pub struct AudioStream {
+    /// The device this stream is connected to.
+    device: AudioDevice,
+    /// Sample rate.
+    sample_rate: u32,
+    /// Buffer size (frames per callback).
+    buffer_size: usize,
+    /// Callback function called by the OS audio driver.
+    callback: Box<dyn FnMut(&mut AudioBuffer) + Send>,
+}
+
+impl AudioStream {
+    /// Starts the audio stream.
+    pub fn start(&mut self) -> Result<(), AudioError>;
+
+    /// Stops the audio stream.
+    pub fn stop(&mut self) -> Result<(), AudioError>;
+}
+
+/// Enumerates available audio devices.
+pub fn enumerate_devices() -> Result<Vec<AudioDevice>, AudioError>;
+
+5. Real-Time Safety Architecture
+The most critical design constraint in tpt-audio is the boundary between the Main/UI Thread and the Audio Thread.
+Main/UI Thread (Can Allocate, Can Block)
+
+┌──────────────────────────────────────────────────┐
+│  ALLOWED:                                         │
+│  ✅ Heap allocation (Vec, Box, HashMap)           │
+│  ✅ File I/O (reading audio files)                │
+│  ✅ Database queries (timeline state)             │
+│  ✅ UI rendering                                  │
+│  ✅ Blocking operations (sleep, wait)             │
+│                                                   │
+│  RESPONSIBILITIES:                                │
+│  - Mutate timeline state                          │
+│  - Load/unload audio assets                       │
+│  - Update UI                                      │
+└──────────────────────────────────────────────────┘
+
+Audio Thread (ZERO Allocation, ZERO Blocking)
+
+┌──────────────────────────────────────────────────┐
+│  REQUIRED:                                        │
+│  ❌ No heap allocation                            │
+│  ❌ No file I/O                                   │
+│  ❌ No database queries                           │
+│  ❌ No mutexes or locks (use lock-free structures)│
+│  ❌ No panics (unwrap, expect, index out of bounds)│
+│  ❌ No blocking operations                        │
+│  ✅ Write only into pre-allocated buffers         │
+│  ✅ Stack-only arithmetic and memory access       │
+│                                                   │
+│  RESPONSIBILITIES:                                │
+│  - Read timeline state (lock-free snapshot)       │
+│  - Render audio from timeline                     │
+│  - Apply effects and mixing                       │
+│  - Output to hardware                             │
+└──────────────────────────────────────────────────┘
+
+Lock-Free State Synchronization
+The timeline state is mutated on the Main Thread but read on the Audio Thread. This requires a lock-free synchronization mechanism.
+
+/// Lock-free state synchronization between Main Thread and Audio Thread.
+pub struct TimelineState {
+    /// Atomic pointer to the current timeline snapshot.
+    current: AtomicPtr<Session>,
+    /// Double-buffered snapshots for lock-free updates.
+    snapshots: [Box<Session>; 2],
+    /// Index of the current snapshot (0 or 1).
+    current_index: AtomicUsize,
+}
+
+impl TimelineState {
+    /// Updates the timeline state (Main Thread).
+    pub fn update(&self, new_session: Session) {
+        // 1. Write new session to the inactive snapshot
+        // 2. Atomically swap the current index
+        // 3. Audio thread will read the new snapshot on next callback
+    }
+
+    /// Reads the current timeline state (Audio Thread).
+    pub fn read(&self) -> &Session {
+        // 1. Load the current index
+        // 2. Return a reference to the current snapshot
+        // 3. No locks, no allocation
+    }
+}
+
+6. Roadmap
+Phase 1: Foundation & Timeline Model (Current)
+tpt-av-audio-utils with shared types (AudioBuffer, Sample, Time)
+tpt-av-audio-timeline with core structs (Session, Track, Clip, Envelope)
+Unit tests for timeline math (clip splitting, envelope interpolation)
+cargo-deny CI pipeline enforcing pure MIT
+Phase 2: I/O Layer Integration
+Absorb existing tpt-audio code into tpt-av-audio-io
+Ensure WASAPI, PipeWire, and CoreAudio backends compile and work
+Write integration tests for device enumeration and stream management
+Phase 3: Real-Time Mixer
+tpt-av-audio-core with AudioGraph and AudioNode trait
+TimelineRenderer that reads timeline state and renders audio
+Built-in DSP effects (gain, pan, fade)
+Lock-free state synchronization between Main Thread and Audio Thread
+Headless CLI renderer that takes a timeline JSON and outputs WAV
+Phase 4: Asset Management
+Integration with tpt-cadence for decoding audio files
+Pre-allocated PCM caches for each audio asset
+Background thread pool for decoding and caching
+Ring buffer handoff between decoder and audio thread
+Phase 5: Plugin Hosting (Future)
+tpt-av-audio-plugin with VST3 and CLAP support (via nih-plug)
+Plugin parameter automation
+Side-chaining and bus routing
+7. Dependency & Licensing Rules
+Allowed Dependencies (Permissive Only)
+tpt-av-audio-utils (internal)
+tpt-av-audio-timeline (internal)
+tpt-av-audio-core (internal)
+tpt-av-audio-io (internal)
+tpt-cadence (MIT) — for decoding audio files
+cpal (MIT/Apache) — cross-platform audio I/O (wrapped by tpt-av-audio-io)
+rubato (MIT) — sample rate conversion
+nih-plug (MIT) — VST3/CLAP plugin hosting (future)
+serde (MIT/Apache) — serialization for timeline state
+log (MIT/Apache) — logging facade
+Banned Dependencies
+ffmpeg-sys / ffmpeg-next (LGPL/GPL)
+symphonia (MPL-2.0)
+Any crate with GPL, LGPL, AGPL, or MPL in its dependency tree
+Enforcement
+The deny.toml file enforces this automatically:
+
+[licenses]
+unlicensed = "deny"
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+]
+deny = [
+    "GPL-2.0",
+    "GPL-3.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "AGPL-3.0",
+    "MPL-2.0",
+]
+
+8. Workspace Cargo.toml
+
+[workspace]
+resolver = "2"
+members = [
+    "tpt-av-audio-utils",
+    "tpt-av-audio-timeline",
+    "tpt-av-audio-core",
+    "tpt-av-audio-io",
+    "tpt-av-audio-plugin",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/tpt-solutions/tpt-audio"
+rust-version = "1.75"
+
+[workspace.dependencies]
+tpt-av-audio-utils = { path = "tpt-av-audio-utils", version = "0.1.0" }
+tpt-av-audio-timeline = { path = "tpt-av-audio-timeline", version = "0.1.0" }
+tpt-av-audio-core = { path = "tpt-av-audio-core", version = "0.1.0" }
+tpt-av-audio-io = { path = "tpt-av-audio-io", version = "0.1.0" }
+tpt-cadence = { git = "https://github.com/tpt-solutions/tpt-cadence", version = "0.1.0" }
+cpal = "0.15"
+rubato = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+
+9. Contributing & License
+This project is released under the MIT License.
+By contributing to tpt-audio, you agree that:
+Your code will be licensed under the same pure MIT terms.
+You will not introduce any dependency that is GPL, LGPL, AGPL, or MPL licensed.
+All real-time audio processing code must be allocation-free, lock-free, and panic-free.
+This ensures tpt-audio remains free, open, and unencumbered by copyleft restrictions for all future audio software development.
+

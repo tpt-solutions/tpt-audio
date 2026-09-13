@@ -1,97 +1,103 @@
-# tpt-audio — Project Checklist
+# tpt-audio — Upgrade Checklist (Engine Pivot)
 
 Dual-licensed MIT / Apache-2.0 — TPT Solutions
 
-## Phase 0 — Project Setup
-- [x] Initialize git repo, `.gitignore`, README skeleton
-- [x] Add `LICENSE-MIT` and `LICENSE-APACHE`, dual-license notice in README/Cargo.toml
-- [x] Set up Rust workspace (`Cargo.toml` with member crates: `core`, `gui`, `platform-windows`, `desktop`)
-- [x] Set up CI (build + test on Windows and Linux runners)
-- [x] Decide on GUI framework: egui/eframe — spike a "hello window" app
-- [x] Define coding standards / lint setup (`rustfmt`, `clippy`)
-
-## Phase 1 — Windows MVP (full-featured)
-### Routing engine (`core`)
-- [x] Design core audio graph model: sources, sinks, routes, per-route gain
-- [x] Define platform-agnostic trait(s) for audio backends
-- [x] Implement mixing/routing engine (buffer handling, per-route gain mixing)
-- [x] Implement per-route/per-app volume control logic
-- [x] Add config persistence (save/load routing setups, presets)
-
-### Windows backend (`platform-windows`)
-- [x] WASAPI device enumeration (inputs/outputs)
-- [x] WASAPI capture/render stream setup (shared mode with thread)
-- [x] Per-application audio session enumeration & volume control (`IAudioSessionManager2`)
-- [x] Wire Windows backend into core engine via the platform trait
-- [x] Measure and tune for zero added latency / low CPU usage
-
-### GUI (`gui`)
-- [x] App shell (window, toolbar with tabs)
-- [x] Routing matrix widget (sources x sinks grid)
-- [x] Per-cell/per-route volume sliders
-- [x] Per-app volume panel
-- [x] Device/app list live-updates (auto-refresh every ~6s, hotplug detection)
-- [x] Save/load presets from the UI
-- [x] Basic settings screen (refresh, info)
-
-### Windows MVP hardening
-- [ ] Manual test pass: common apps (pending: needs real Windows hardware)
-- [x] Handle device disconnect/reconnect gracefully
-- [x] Installer (MSI or similar) + code signing plan (WiX `wix/main.wxs` + `docs/SIGNING.md`)
-- [x] Write user-facing quickstart docs
-
-## Phase 2 — Linux (PipeWire) Support
-- [x] Implement `platform-linux` backend (PipeWire, via `pw-dump`/`pw-link`/`wpctl` CLI — see note below)
-- [x] Map PipeWire nodes/ports to the core graph model (Audio/Sink, Audio/Source, Stream/* nodes)
-- [x] Per-app (per-stream) volume control via PipeWire (`wpctl set-volume`)
-- [x] Verify routing matrix UI works unchanged against the new backend (backend implements the same `AudioBackend` trait; compiles; runtime verify pending)
-- [x] Package for common distros (e.g. AppImage / Flatpak / .deb) (added `packaging/linux`: Flatpak manifest, `.desktop`, metainfo, README; build/test on Linux pending)
-- [ ] Manual test pass on at least one major distro
-
-> Note: The original plan called for `pipewire-rs`. To keep the crate buildable
-> and verifiable without linking native `libpipewire` (and because the Linux
-> backend could not be compiled/run in this Windows dev environment), it is
-> currently backed by the standard PipeWire CLI tools. Routing is still native
-> (PipeWire graph links), so audio stays zero-copy in the server. A future
-> `pipewire-rs` native backend can also apply per-route gain via a mixing proxy.
-
-## Phase 3 — Archon Support (research-gated)
-- [x] Track `tpt-archon` audio server API design (scaffold; `AUDIO_CAPTURE` capability model in `platform-archon`)
-- [ ] Prototype against `tpt-archon-bridge` zero-copy IPC (blocked: API not yet available)
-- [x] Implement `platform-archon` backend behind the same core trait (stub; returns research-gated errors)
-- [x] Implement `AUDIO_CAPTURE` capability request/grant flow model (enum/grant types + `request_audio_capture()`)
-- [ ] Verify shared-memory buffer routing meets zero-latency goal (blocked: API not yet available)
-- [ ] Manual test pass on Archon (blocked: platform not available)
-
-## Phase 4 — Cross-Platform Polish & Release
-- [x] Unify UX across all three platforms (single shared `gui` crate; identical matrix/volume/preset UI on all backends)
-- [x] Accessibility pass on the matrix UI (descriptive tooltips + hover labels on routes, controls, headers)
-- [ ] Performance/CPU profiling pass on all platforms (pending: requires runtime profiling on real hardware)
-- [x] Crash reporting / diagnostics logging (panic hook + rolling log file + crash-report writer in `core::diagnostics`; wired in `desktop`)
-- [x] Public website/download page copy (`docs/WEBSITE.md`)
-- [x] 1.0 release notes, versioning scheme, update-check mechanism (`CHANGELOG.md` + `core::update` + Settings → Check for Updates)
-
-## Phase 5 — Post-1.0 / Stretch
-- [x] Routing presets sharable as files (export/import to JSON in the Presets tab)
-- [x] Hotkeys / global shortcuts (in-app keyboard shortcuts via egui: Ctrl+1..5 switch tabs, F5 refresh; global OS hotkeys noted as future work)
-- [x] Plugin/extension hooks (`core::plugin` — `Plugin` trait + `PluginRegistry`, wired into GUI lifecycle)
-- [x] Remote/headless control (CLI: `--control <json>` one-shot and `--server` stdin loop in `core::remote`)
-- [x] Localization (`core::i18n` with en/de/es, language selector in Settings; UI strings routed through `I18n::tr`)
+> Pivoting `tpt-audio` from the router/mixer app (`core`/`gui`/`desktop`/`platform-*`) into
+> the `tpt-av-audio-*` non-destructive engine workspace described in `spec2.txt`. New crates
+> are scaffolded incrementally; old crates keep building until each is fully migrated or
+> retired. License stays dual MIT/Apache-2.0 (overrides spec2's "pure MIT" wording);
+> `tpt-cadence` / `tpt-kinetix` are tracked only as external git dependencies, not built here.
 
 ---
 
-## Status — 2026-08-05
+## Phase 0 — Pivot Setup & Decisions
+- [ ] Confirm/record this pivot decision in README + CHANGELOG (router app → audio engine library)
+- [ ] Decide fate of `gui` + `desktop` (router UI): archive in this repo under `legacy/`, split to a new repo, or delete outright
+- [ ] Update root `Cargo.toml` license field to `"MIT OR Apache-2.0"` (keep dual, do not follow spec2's MIT-only text)
+- [ ] Update README.md badges/description for new engine positioning; keep dual-license notice
+- [ ] Create `deny.toml` (cargo-deny) with allow list `MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib`; deny `GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0, AGPL-3.0, MPL-2.0`
+- [ ] Add cargo-deny check to CI workflow (`.github/workflows`)
+- [ ] Scaffold new workspace members in root `Cargo.toml`: `tpt-av-audio-utils`, `tpt-av-audio-timeline`, `tpt-av-audio-core`, `tpt-av-audio-io`, `tpt-av-audio-plugin`
+- [ ] Add `[workspace.package]` fields: version `0.1.0`, edition `2021`, license `"MIT OR Apache-2.0"`, rust-version `1.75`
+- [ ] Rename/retire `spec.txt` (old router spec) — keep for history or move to `legacy/`
+- [ ] Decide whether existing `platform-archon` research/stub content is preserved for later I/O backend work
 
-Completed this pass (code + docs/packaging, verified with `cargo build`/`test`/`clippy`):
-crash reporting & diagnostics logging, shareable preset files, accessibility pass on the
-matrix, Windows installer (WiX) + code-signing plan, Linux packaging (Flatpak/`.desktop`/
-metainfo), versioning scheme + 1.0 release notes + in-app update check, website copy, and
-UX unification (single shared GUI crate), and the Phase 5 stretch items: in-app
-hotkeys, plugin/extension hook system, headless CLI remote control, and UI localization (en/de/es).
+---
 
-Still pending / not actionable in this environment:
-- Manual test passes on real Windows / Linux / Archon hardware (need devices + sessions).
-- Archon tasks are blocked on the upstream `tpt-archon-bridge` API (zero-copy IPC,
-  zero-latency verification, manual Archon test).
-- Performance/CPU profiling pass requires runtime profiling on target hardware.
-- Global OS-level hotkeys (vs the in-app shortcuts delivered) noted as future work.
+## Phase 1 — Foundation & Timeline Model
+- [ ] Scaffold `tpt-av-audio-utils` crate (`lib.rs`, `sample.rs`, `buffer.rs`, `time.rs`, `error.rs`)
+  - [ ] `Sample` types (f32, i16, etc.)
+  - [ ] `AudioBuffer`-adjacent buffer abstractions
+  - [ ] Time/duration types (frames, seconds, samples) with conversions
+  - [ ] `AudioError` enum
+- [ ] Scaffold `tpt-av-audio-timeline` crate (`lib.rs`, `session.rs`, `track.rs`, `clip.rs`, `asset.rs`, `envelope.rs`, `edit.rs`, `history.rs`)
+  - [ ] `Session`, `Track`, `Clip`, `AudioAsset` structs per spec §4.1
+  - [ ] `Envelope` / `EnvelopePoint` + `InterpolationMethod` (linear, cubic, step)
+  - [ ] Edit operations: insert, delete, move, split
+  - [ ] Undo/redo history
+  - [ ] Unit tests: clip splitting, envelope interpolation math
+- [ ] Wire up cargo-deny CI pipeline enforcing license policy (verify it actually runs on these new crates)
+
+---
+
+## Phase 2 — I/O Layer Integration
+- [ ] Scaffold `tpt-av-audio-io` crate (`lib.rs`, `device.rs`, `stream.rs`, `backend/`, `router.rs`)
+- [ ] Port WASAPI logic from `platform-windows` → `tpt-av-audio-io/src/backend/wasapi.rs`
+- [ ] Port PipeWire logic from `platform-linux` → `tpt-av-audio-io/src/backend/pipewire.rs`
+- [ ] Add/port CoreAudio backend stub → `tpt-av-audio-io/src/backend/coreaudio.rs` (macOS, new — not in old repo)
+- [ ] Decide fate of `platform-archon` (research-gated) — port as future backend or shelve per Phase 0 decision
+- [ ] Define `AudioDevice`, `AudioStream`, `enumerate_devices()` per spec §4.3 (replaces old `AudioBackend` trait)
+- [ ] Migrate device enumeration + stream start/stop tests from old `platform-*` crates
+- [ ] Integration tests for device enumeration and stream management
+- [ ] Retire old `platform-windows`, `platform-linux`, `platform-archon` crates once ported (remove from workspace members)
+
+---
+
+## Phase 3 — Real-Time Mixer
+- [ ] Scaffold `tpt-av-audio-core` crate (`lib.rs`, `graph.rs`, `mixer.rs`, `renderer.rs`, `dsp/`, `scheduler.rs`)
+- [ ] `AudioGraph` + `AudioNode` trait (real-time safe: allocation-free, lock-free, panic-free `process()`)
+- [ ] `AudioBuffer` (interleaved f32) type — reconcile with `tpt-av-audio-utils` buffer types
+- [ ] Multi-track `mixer.rs`
+- [ ] `TimelineRenderer`: reads timeline snapshot, fetches PCM, applies envelopes, mixes, advances playhead
+- [ ] Built-in DSP: `gain.rs`, `pan.rs`, `fade.rs`
+- [ ] `resample.rs` wrapping `rubato` for sample rate conversion
+- [ ] Lock-free state sync: `TimelineState` (double-buffered snapshot, `AtomicPtr`/`AtomicUsize`)
+- [ ] Real-time safety audit: confirm no heap allocation/locking/panics on the audio-thread path (document + add a lint/test guard, e.g. `#[no_alloc]`-style check or allocation-counting test)
+- [ ] `examples/headless_render.rs`: renders a timeline JSON to WAV
+- [ ] `examples/simple_player.rs`, `examples/mixer_demo.rs`
+
+---
+
+## Phase 4 — Asset Management
+- [ ] Add `tpt-cadence` as external git dependency (once available) — *no in-repo build work on tpt-cadence itself*
+- [ ] Integrate `tpt-cadence` decode calls into asset loading (Main Thread)
+- [ ] Pre-allocated PCM caches per `AudioAsset` (`AudioAssetCache`)
+- [ ] Background thread pool for decoding/caching
+- [ ] Ring buffer handoff between decoder thread and audio thread (lock-free, bounded)
+- [ ] Tests: asset cache correctness, decode-thread → audio-thread handoff under load
+
+---
+
+## Phase 5 — Plugin Hosting (Future)
+- [ ] Scaffold `tpt-av-audio-plugin` crate
+- [ ] VST3 support via `nih-plug`
+- [ ] CLAP support via `nih-plug`
+- [ ] Plugin parameter automation (ties into `Envelope` model)
+- [ ] Side-chaining and bus routing
+
+---
+
+## Phase 6 — Legacy Cleanup & Release
+- [ ] Remove/archive retired `core`, `gui`, `desktop`, `platform-*` crates per Phase 0 decision
+- [ ] Update `wix/`, `packaging/linux`, `docs/SIGNING.md`, `docs/WEBSITE.md`, `QUICKSTART.md` — retire or rewrite for library-not-app distribution model
+- [ ] Update CHANGELOG.md with pivot notes and new crate versions
+- [ ] Publish crates to crates.io under `tpt-av-audio-*` namespace (utils → timeline → core → io → plugin, dependency order)
+- [ ] Final README pass: vision, ecosystem diagram, crate table, quickstart for library consumers
+- [ ] Tag `0.1.0` release across workspace
+
+---
+
+## Open Questions / Risks
+- `gui`/`desktop` retirement destination not yet chosen (Phase 0)
+- `tpt-cadence` repo availability/API stability is an external blocker for Phase 4
+- `platform-archon` was research-gated/blocked upstream even in the old repo — likely stays blocked for the new `tpt-av-audio-io` Archon backend too
