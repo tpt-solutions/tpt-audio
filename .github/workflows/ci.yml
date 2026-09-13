@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
 
 jobs:
   build-and-test:
@@ -31,3 +31,15 @@ jobs:
 
       - name: Test
         run: cargo test --all
+
+  licenses:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # License policy enforcement (deny.toml): permissive-only dependencies.
+      - name: cargo-deny license check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses

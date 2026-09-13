@@ -1,0 +1,23 @@
+[package]
+name = "tpt-av-audio-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Real-time mixer graph, DSP, timeline rendering, and lock-free state sync"
+
+[dependencies]
+arc-swap = { workspace = true }
+hound = { workspace = true }
+log = { workspace = true }
+rubato = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tpt-av-audio-timeline = { workspace = true }
+tpt-av-audio-utils = { workspace = true }
+
+[dev-dependencies]
+# Examples play through the platform backend.
+tpt-av-audio-io = { workspace = true }

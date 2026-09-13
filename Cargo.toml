@@ -1,9 +1,35 @@
 [workspace]
 resolver = "2"
-members = ["core", "gui", "platform-windows", "platform-linux", "platform-archon", "desktop"]
+members = [
+    "tpt-av-audio-utils",
+    "tpt-av-audio-timeline",
+    "tpt-av-audio-core",
+    "tpt-av-audio-io",
+    "tpt-av-audio-plugin",
+]
+exclude = ["legacy"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["TPT Solutions"]
+repository = "https://github.com/tpt-solutions/tpt-audio"
+rust-version = "1.75"
+
+[workspace.dependencies]
+tpt-av-audio-utils = { path = "tpt-av-audio-utils", version = "0.1.0" }
+tpt-av-audio-timeline = { path = "tpt-av-audio-timeline", version = "0.1.0" }
+tpt-av-audio-core = { path = "tpt-av-audio-core", version = "0.1.0" }
+tpt-av-audio-io = { path = "tpt-av-audio-io", version = "0.1.0" }
+arc-swap = "1.7"
+hound = "3.5"
+log = "0.4"
+rubato = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+windows = { version = "0.58", features = [
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_Foundation",
+] }

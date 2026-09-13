@@ -1,121 +1,87 @@
-# tpt-audio — Quickstart
+# QUICKSTART — tpt-audio engine library
 
-A simple, modern audio router & virtual mixer for Windows. Route any app or
-input to any output with a visual matrix and per-app / per-route volume control.
+Build and use the `tpt-av-audio-*` engine workspace. For the archived
+router desktop app, see `legacy/` in the repository root.
 
-> Status: Windows MVP. Linux (PipeWire) and Archon backends are planned (see
-> `todo.md`). The app must be run on Windows with an audio device available.
+## Requirements
 
-## Build from source
+- Rust 1.75+ (edition 2021)
+- Windows: no extra setup (WASAPI backend)
+- Linux: PipeWire running with `pw-dump` for device enumeration
+  (typically `pipewire` + `wireplumber` packages)
+- No audio device needed for offline rendering or tests (`NullBackend`)
 
-Prerequisites:
+## Build & test
 
-- Rust 1.80+ (install via [rustup](https://rustup.rs))
-- Windows 10/11 with a working audio device
-
-```powershell
-git clone <repo-url> tpt-audio
-cd tpt-audio
-cargo build --release -p tpt-audio-desktop
+```bash
+cargo build --all
+cargo test --all
 ```
 
-The binary is produced at `target/release/tpt-audio-desktop.exe`.
+The real-time safety audit runs as part of `cargo test`
+(`tpt-av-audio-core/tests/rt_safety.rs`) and fails the build if the audio
+path ever allocates.
 
-## Run
+## Use as a library
 
-```powershell
-cargo run -p tpt-audio-desktop
+Add the crates you need to your `Cargo.toml` (published names match the
+directory names):
+
+```toml
+[dependencies]
+tpt-av-audio-utils = "0.1"
+tpt-av-audio-timeline = "0.1"
+tpt-av-audio-core = "0.1"
+tpt-av-audio-io = "0.1"
 ```
 
-The app opens an `eframe`/`egui` window with a toolbar of tabs:
-**Routing · Volume · Presets · Settings · Diagnostics**.
+Minimal non-destructive playback of a WAV:
 
-## Routing tab
+```rust
+use std::sync::Arc;
+use tpt_av_audio_core::{AssetPcm, AssetStore, TimelineRenderer, TimelineState};
+use tpt_av_audio_timeline::{Clip, Session};
 
-- **Rows** are *sources*: microphones/inputs and running apps (`app::<pid>`).
-- **Columns** are *sinks*: output devices (speakers, headsets).
-- Click **+** at a row/column intersection to create a route.
-- Each route has a **mute** checkbox, a **gain** slider (0–100%), and an **x**
-  to remove it.
-- Devices are auto-detected and refreshed periodically (~every 6 seconds), and
-  the matrix updates live.
+let mut session = Session::new("demo", 48_000);
+let track = session.add_track("clip");
+let asset_id = session.register_asset(/* AudioAsset { … } */);
 
-### Device disconnect / reconnect
+// Cache decoded PCM (Main Thread), then render (Audio Thread):
+let store = Arc::new(AssetStore::new());
+store.insert(asset_id, AssetPcm { sample_rate: 48_000, channels: 2, data: pcm });
 
-Routes survive device unplug events. If an output or input disappears, the
-affected routes are marked disconnected and audio for them is paused. When the
-device returns (same Windows device id), the pipeline **automatically
-reconnects** and resumes — no restart needed. Reconnect activity is visible on
-the **Diagnostics** tab (`Device reconnects`).
+let state = Arc::new(TimelineState::new(session));
+let mut renderer = TimelineRenderer::new(Arc::clone(&state), Arc::clone(&store));
+renderer.prepare(256, 2);
 
-## Volume tab
+let mut buffer = tpt_av_audio_utils::AudioBuffer::new(256, 2);
+renderer.render(&mut buffer).unwrap(); // advance the playhead 256 frames
+```
 
-- **Master Volume** scales all routed audio.
-- **Per-App Volumes** controls each detected app session independently and is
-  applied directly via the Windows audio session API.
+## Headless rendering (timeline JSON → WAV)
 
-## Presets tab
+```bash
+cargo run -p tpt-av-audio-core --example headless_render -- \
+    tpt-av-audio-core/examples/podcast_demo.json demo.wav
+```
 
-- Name the current routing + volume setup and **Save Current**.
-- **Load** restores a preset; **Delete** removes it.
+The JSON is a serialized `tpt_av_audio_timeline::Session`. Asset paths
+resolve relative to the JSON file.
 
-> Presets are currently held in-memory. File-based, shareable presets are a
-> planned post-1.0 feature (see `todo.md`).
+## Live playback
 
-## Settings tab
+```bash
+# Play a WAV through the timeline engine:
+cargo run -p tpt-av-audio-core --example simple_player -- demo.wav
 
-- Short description of sources/sinks and the auto-refresh behavior.
-- **Refresh Devices Now** forces an immediate re-scan.
+# Synthesized two-track mix, no file assets needed:
+cargo run -p tpt-av-audio-core --example mixer_demo
+```
 
-## Diagnostics tab
+Force the device-free sink (CI, headless machines) with
+`TPT_AUDIO_BACKEND=null`.
 
-Live counters and an event log:
+## License
 
-- Stream underruns / overruns and capture glitches (data discontinuity).
-- Routes created / removed.
-- Devices found / lost / **reconnected**.
-- Time since last device refresh.
-- Rolling event log with `INFO` / `WARN` / `ERROR` levels.
-
-Use this tab to confirm low-latency, glitch-free operation and to verify
-reconnect behavior after unplugging/replugging a device.
-
-## Latency & CPU notes
-
-- Shared-mode WASAPI, 48 kHz / stereo, 256-frame buffers (~5.3 ms per buffer).
-- The mixing pipeline pulls capture data as soon as it is available and only
-  idles briefly when no audio is flowing, keeping added latency and CPU usage
-  low. Capture glitches are surfaced on the Diagnostics tab for tuning.
-
-## Linux (PipeWire)
-
-On Linux the same GUI runs against a PipeWire backend (`platform-linux`). It
-talks to a running PipeWire session through the standard CLI tools
-(`pw-dump`, `pw-link`, `wpctl`), which are normally provided by the `pipewire`
-and `wireplumber` packages.
-
-Requirements:
-
-- PipeWire running with `pw-link` and `wpctl` available on `PATH`.
-- A session bus / WirePlumber for `wpctl` volume control.
-
-Behavior differences from Windows:
-
-- **Routing** is performed natively by PipeWire: creating a route makes a graph
-  link between the source and sink node ids, so audio stays inside the server
-  (zero extra copy). Mute toggles the link.
-- **Per-app volume** is applied via `wpctl set-volume`.
-- **Per-route gain** is recorded by the UI but not yet applied by the link
-  backend (a PipeWire link is unity-gain). A future native `pipewire-rs` backend
-  can apply per-route gain through a mixing proxy.
-- No mixing "stream" is started; links are live as soon as a route exists.
-
-## Archon (research-gated)
-
-Archon support is scaffolded in `platform-archon` behind the same `AudioBackend`
-trait, including the `AUDIO_CAPTURE` capability request/grant model
-(`Capability`, `CapabilityGrant`, `request_audio_capture()`). The actual
-transport depends on the `tpt-archon` audio server API and `tpt-archon-bridge`
-zero-copy IPC, which are not yet published, so the backend currently returns
-research-gated errors. Build with `cargo run -p tpt-audio-desktop --features
-archon` on an Archon target to exercise the scaffold.
+Dual-licensed MIT OR Apache-2.0. Permissive-only dependency policy,
+enforced by `cargo-deny` in CI (`deny.toml`).

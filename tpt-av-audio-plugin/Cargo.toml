@@ -1,0 +1,14 @@
+[package]
+name = "tpt-av-audio-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Plugin hosting foundation: parameters, automation envelopes, buses, and side-chaining"
+
+[dependencies]
+serde = { workspace = true }
+tpt-av-audio-timeline = { workspace = true }
+tpt-av-audio-utils = { workspace = true }

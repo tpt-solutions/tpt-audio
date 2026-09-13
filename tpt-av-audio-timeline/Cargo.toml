@@ -1,0 +1,16 @@
+[package]
+name = "tpt-av-audio-timeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Pure non-destructive edit data model: sessions, tracks, clips, envelopes, edits, and undo history"
+
+[dependencies]
+serde = { workspace = true }
+tpt-av-audio-utils = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

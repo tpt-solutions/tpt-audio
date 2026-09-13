@@ -1,0 +1,20 @@
+[package]
+name = "tpt-av-audio-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "OS audio I/O: device enumeration, stream management, and platform backends (WASAPI, PipeWire, CoreAudio)"
+
+[dependencies]
+log = { workspace = true }
+serde = { workspace = true }
+tpt-av-audio-utils = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+serde_json = { workspace = true }

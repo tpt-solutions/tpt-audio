@@ -1,0 +1,96 @@
+{
+  "id": 1,
+  "name": "Podcast Demo",
+  "sample_rate": 48000,
+  "tracks": [
+    {
+      "id": 1,
+      "name": "Host",
+      "clips": [
+        {
+          "id": 1,
+          "asset_id": 1,
+          "start_frame": 0,
+          "source_offset": 0,
+          "duration_frames": 48000,
+          "volume_envelope": {
+            "points": [
+              {
+                "frame": 0,
+                "value": 0.0
+              },
+              {
+                "frame": 4800,
+                "value": 1.0
+              },
+              {
+                "frame": 43200,
+                "value": 1.0
+              },
+              {
+                "frame": 48000,
+                "value": 0.0
+              }
+            ],
+            "interpolation": "Linear"
+          },
+          "pan_envelope": null,
+          "fade_in_frames": 0,
+          "fade_out_frames": 0
+        }
+      ],
+      "volume": 1.0,
+      "pan": 0.0,
+      "muted": false,
+      "soloed": false
+    },
+    {
+      "id": 2,
+      "name": "Music bed",
+      "clips": [
+        {
+          "id": 2,
+          "asset_id": 2,
+          "start_frame": 24000,
+          "source_offset": 0,
+          "duration_frames": 24000,
+          "volume_envelope": null,
+          "pan_envelope": null,
+          "fade_in_frames": 4800,
+          "fade_out_frames": 9600
+        }
+      ],
+      "volume": 0.4,
+      "pan": 0.0,
+      "muted": false,
+      "soloed": false
+    }
+  ],
+  "metadata": {
+    "title": "Podcast Demo",
+    "tempo_bpm": 120.0,
+    "time_signature_numerator": 4,
+    "time_signature_denominator": 4
+  },
+  "ids": {
+    "next_track": 3,
+    "next_clip": 3,
+    "next_asset": 3
+  },
+  "assets": [
+    {
+      "id": 1,
+      "file_path": "podcast_demo_assets/voice.wav",
+      "duration_frames": 48000,
+      "sample_rate": 48000,
+      "channels": 2
+    },
+    {
+      "id": 2,
+      "file_path": "podcast_demo_assets/music.wav",
+      "duration_frames": 48000,
+      "sample_rate": 48000,
+      "channels": 2
+    }
+  ]
+}

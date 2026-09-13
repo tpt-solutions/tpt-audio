@@ -1,0 +1,11 @@
+[package]
+name = "tpt-av-audio-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared types, sample conversions, buffers, time math, and errors for the tpt-av-audio engine workspace"
+
+[dependencies]

@@ -1,0 +1,30 @@
+# cargo-deny license audit for the tpt-av-audio-* workspace.
+#
+# Policy (spec2 §7): permissive licenses only. The allow list below is the
+# complete set of acceptable licenses — anything not on it is denied,
+# which explicitly bans GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0, AGPL-3.0,
+# and MPL-2.0, so the dual MIT OR Apache-2.0 licensing of this workspace
+# can never be contaminated transitively.
+#
+# Note: the workspace decision overrides spec2's "pure MIT" wording — the
+# crates remain dual MIT / Apache-2.0.
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    # Required for `unicode-ident` (via syn/serde_derive), which is dual
+    # licensed "(MIT OR Apache-2.0) AND Unicode-3.0". The Unicode license is
+    # a permissive data license, not copyleft; without it serde cannot be
+    # used.
+    "Unicode-3.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
