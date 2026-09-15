@@ -188,6 +188,23 @@ impl Session {
     pub fn generate_clip_id(&mut self) -> ClipId {
         self.ids.next_clip_id()
     }
+
+    /// Serializes the session to `path` as pretty JSON.
+    ///
+    /// Asset `file_path`s are stored as-is; save from the session's own
+    /// working directory (or use relative paths) for portable documents.
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), AudioError> {
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| AudioError::InvalidConfig(format!("session serialize: {e}")))?;
+        std::fs::write(path, json).map_err(AudioError::Io)
+    }
+
+    /// Loads a session previously written by [`Session::save`].
+    pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self, AudioError> {
+        let json = std::fs::read_to_string(path).map_err(AudioError::Io)?;
+        serde_json::from_str(&json)
+            .map_err(|e| AudioError::InvalidConfig(format!("session deserialize: {e}")))
+    }
 }
 
 #[cfg(test)]
@@ -262,9 +279,35 @@ mod tests {
             pan_envelope: None,
             fade_in_frames: 0,
             fade_out_frames: 0,
+            loop_start: None,
+            loop_end: None,
+            fade_in_curve: Default::default(),
+            fade_out_curve: Default::default(),
         };
         s.track_mut(t2).unwrap().insert_clip(clip);
         assert_eq!(s.duration_frames(), 600);
+    }
+
+    #[test]
+    fn session_save_load_round_trip_via_file() {
+        let mut s = Session::new("persisted", 48_000);
+        let t = s.add_track("host");
+        let clip_id = s.generate_clip_id();
+        s.track_mut(t).unwrap().insert_clip(crate::clip::Clip::new(
+            clip_id,
+            crate::asset::AssetId(1),
+            0,
+            100,
+        ));
+
+        let dir = std::env::temp_dir().join("tpt-av-audio-timeline-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session_roundtrip.json");
+        s.save(&path).unwrap();
+
+        let back = Session::load(&path).unwrap();
+        assert_eq!(back, s);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -281,6 +324,10 @@ mod tests {
             pan_envelope: None,
             fade_in_frames: 10,
             fade_out_frames: 20,
+            loop_start: None,
+            loop_end: None,
+            fade_in_curve: Default::default(),
+            fade_out_curve: Default::default(),
         };
         s.track_mut(t).unwrap().insert_clip(c);
 

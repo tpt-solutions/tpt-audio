@@ -60,6 +60,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pan_envelope: None,
             fade_in_frames: 0,
             fade_out_frames: 0,
+            loop_start: None,
+            loop_end: None,
+            fade_in_curve: Default::default(),
+            fade_out_curve: Default::default(),
         });
 
     // 3. Cache the PCM and start the renderer.

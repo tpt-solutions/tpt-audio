@@ -39,9 +39,15 @@ buildable under `legacy/` (excluded from the workspace).
   - `TimelineRenderer`: lock-free snapshot → PCM → clip envelopes/fades →
     track strip state → mix, with inline sample-rate conversion and playhead.
   - `TimelineState` (`arc-swap`): wait-free Main→Audio thread snapshot sync.
-  - Asset management: `AssetStore` (pre-allocated PCM caches),
-    `DecodeRegistry` (built-in WAV decoder; `tpt-cadence` plugs in when it
-    ships), background `DecodePool`, lock-free `SpscRing` handoff.
+  - Asset management: `AssetStore` (pre-allocated PCM caches; writer-side
+    mutex fixes a lost-update race between concurrent inserts), background
+    `DecodePool`, lock-free `SpscRing` handoff.
+  - **`tpt-cadence` integration** (behind the `cadence` feature): decodes
+    WAV, AIFF, and FLAC through the cadence codec suite's real-time-safe
+    `Decoder` contract, dispatched via the `DecodeRegistry`. cadence is
+    wired through path dependencies on a sibling checkout until its codec
+    crates are pushed to GitHub; without the feature, WAV decodes via the
+    built-in hound fallback so CI and fresh clones build.
   - Real-time safety audit: `tests/rt_safety.rs` counts heap allocations
     through a global allocator and asserts the render path is
     allocation-free.
@@ -65,6 +71,24 @@ buildable under `legacy/` (excluded from the workspace).
   `ParameterSet`/`ParameterInfo`, envelope-driven `ParameterAutomation`
   (clip-local or session time base), `BusLayout`/`BusRouter`, and a
   smoothed `SidechainDucker`.
+
+### Added — adoption & ergonomics
+- **`tpt-av-audio` umbrella crate** — one dependency over the whole
+  workspace: the `Engine` facade (timeline state + asset store + decoder
+  registry + renderer pre-wired, with blocking and background asset
+  loading), `play_file`/`play_file_blocking` one-call playback, and
+  `offline::render_session_to_wav`.
+- Ergonomics across the workspace: `Clip::new` + builder methods
+  (`with_fades`, `with_volume_envelope`, …), `Session::save`/`load` JSON
+  documents, `AudioBuffer::peak`/`rms`/`combined_peak` level meters.
+- **PipeWire streams**: playback and capture through `pw-cat` raw f32
+  pipes (`PwCatWriter`/`PwCatReader`), complementing `pw-dump`
+  enumeration; the native `pipewire-rs` port remains the future upgrade.
+- Security policy & supply-chain hardening: `SECURITY.md`, RustSec
+  advisories and source restrictions in `cargo-deny` (new `security` CI
+  job), `#![forbid(unsafe_code)]` on utils/timeline/plugin, explicit
+  unsafe-block contracts in the WASAPI backend, MSRV (1.75) CI job,
+  Dependabot for Actions, and `CONTRIBUTING.md`.
 
 ### Added — tooling & policy
 - `deny.toml` (cargo-deny): permissive-only dependency policy; GPL-2.0,

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "tpt-av-audio",
     "tpt-av-audio-utils",
     "tpt-av-audio-timeline",
     "tpt-av-audio-core",
@@ -18,10 +19,15 @@ repository = "https://github.com/tpt-solutions/tpt-audio"
 rust-version = "1.75"
 
 [workspace.dependencies]
+tpt-av-audio = { path = "tpt-av-audio", version = "0.1.0" }
 tpt-av-audio-utils = { path = "tpt-av-audio-utils", version = "0.1.0" }
 tpt-av-audio-timeline = { path = "tpt-av-audio-timeline", version = "0.1.0" }
 tpt-av-audio-core = { path = "tpt-av-audio-core", version = "0.1.0" }
 tpt-av-audio-io = { path = "tpt-av-audio-io", version = "0.1.0" }
+# tpt-cadence (audio codecs): path deps on the sibling checkout, enabled via
+# the `cadence` feature of tpt-av-audio-core. Swap to
+# `git = "https://github.com/tpt-solutions/tpt-cadence"` once the codec
+# crates are pushed to GitHub.
 arc-swap = "1.7"
 hound = "3.5"
 log = "0.4"
@@ -33,3 +39,9 @@ windows = { version = "0.58", features = [
     "Win32_System_Com",
     "Win32_Foundation",
 ] }
+
+# tpt-cadence codec crates (optional; permissive MIT OR Apache-2.0).
+tpt-av-cadence-core = { path = "../tpt-cadence/tpt-av-cadence-core", version = "0.1.0" }
+tpt-av-cadence-wav = { path = "../tpt-cadence/tpt-av-cadence-wav", version = "0.1.0" }
+tpt-av-cadence-aiff = { path = "../tpt-cadence/tpt-av-cadence-aiff", version = "0.1.0" }
+tpt-av-cadence-flac = { path = "../tpt-cadence/tpt-av-cadence-flac", version = "0.1.0" }

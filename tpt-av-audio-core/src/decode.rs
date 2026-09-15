@@ -1,11 +1,15 @@
-//! Audio decoding: a small [`Decoder`] abstraction with a built-in WAV
-//! decoder, ready to host `tpt-cadence` when that crate ships.
+//! Audio decoding: a small [`Decoder`] abstraction backed by the
+//! `tpt-cadence` codec suite, with a built-in WAV fallback.
 //!
-//! `tpt-cadence` (the TPT AV stack codec suite) is a spec-only repository
-//! today, so [`open_decoder`] dispatches by file extension: `.wav` decodes
-//! via the built-in [`WavDecoder`] (hound), everything else returns
-//! [`AudioError::Unsupported`]. When cadence lands, register it through
-//! [`DecodeRegistry`] (Main Thread) without touching the rest of the engine.
+//! Built with the `cadence` feature (path dependencies on the sibling
+//! `tpt-cadence` checkout), [`DecodeRegistry::with_builtins`] registers
+//! cadence's real-time-safe decoders for **WAV, AIFF, and FLAC** and
+//! decodes through the unified `tpt_av_cadence_core::Decoder` contract
+//! (allocation-free `decode(&mut [f32])`). Without the feature, `.wav`
+//! decodes via the built-in [`WavDecoder`] (hound) so CI and fresh clones
+//! without the sibling checkout still build. Either way, extension
+//! dispatch happens through [`DecodeRegistry`] (Main Thread only) and the
+//! rest of the engine never sees a codec.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -20,6 +24,16 @@ pub struct DecodedAudio {
     pub channels: u16,
     /// Interleaved f32 samples in [-1.0, 1.0].
     pub data: Vec<f32>,
+}
+
+impl DecodedAudio {
+    /// Number of complete frames in `data`.
+    pub fn frames(&self) -> u64 {
+        if self.channels == 0 {
+            return 0;
+        }
+        (self.data.len() / self.channels as usize) as u64
+    }
 }
 
 /// A stateful decoder opened against one media file.
@@ -39,13 +53,35 @@ pub struct DecodeRegistry {
 pub type DecoderFactory = Arc<dyn Fn(&Path) -> Result<Box<dyn Decoder>, AudioError> + Send + Sync>;
 
 impl DecodeRegistry {
-    /// Creates a registry preloaded with the built-in WAV decoder.
+    /// Creates a registry preloaded with every decoder this build supports:
+    /// the `tpt-cadence` suite (WAV/AIFF/FLAC) under the `cadence` feature,
+    /// plus the built-in hound WAV decoder as the fallback.
     pub fn with_builtins() -> Self {
         let mut reg = Self::default();
-        reg.register(
-            "wav",
-            Arc::new(|path| Ok(Box::new(WavDecoder::open(path)?))),
-        );
+        let wav = Arc::new(|path: &Path| Ok(Box::new(WavDecoder::open(path)?) as Box<dyn Decoder>));
+        reg.register("wav", wav);
+
+        #[cfg(feature = "cadence")]
+        {
+            use tpt_av_cadence_core::FormatReader;
+
+            reg.register(
+                "wav",
+                Arc::new(|path| open_cadence(path, tpt_av_cadence_wav::WavReader::open)),
+            );
+            reg.register(
+                "aiff",
+                Arc::new(|path| open_cadence(path, tpt_av_cadence_aiff::AiffReader::open)),
+            );
+            reg.register(
+                "aif",
+                Arc::new(|path| open_cadence(path, tpt_av_cadence_aiff::AiffReader::open)),
+            );
+            reg.register(
+                "flac",
+                Arc::new(|path| open_cadence(path, tpt_av_cadence_flac::FlacReader::open)),
+            );
+        }
         reg
     }
 
@@ -59,6 +95,13 @@ impl DecodeRegistry {
         }
     }
 
+    /// Extensions this registry can decode, sorted (diagnostics/errors).
+    pub fn supported_extensions(&self) -> Vec<&str> {
+        let mut exts: Vec<&str> = self.factories.iter().map(|(e, _)| e.as_str()).collect();
+        exts.sort_unstable();
+        exts
+    }
+
     /// Opens a decoder for `path` by extension.
     pub fn open(&self, path: &Path) -> Result<Box<dyn Decoder>, AudioError> {
         let ext = path
@@ -69,10 +112,63 @@ impl DecodeRegistry {
         match self.factories.iter().find(|(e, _)| *e == ext) {
             Some((_, factory)) => factory(path),
             None => Err(AudioError::Unsupported(format!(
-                "no decoder registered for '.{ext}' (tpt-cadence integration pending)"
+                "no decoder registered for '.{ext}' (supported: {})",
+                self.supported_extensions().join(", ")
             ))),
         }
     }
+}
+
+/// Adapter: opens a cadence [`tpt_av_cadence_core::FormatReader`] against
+/// `path` and erases it into the engine's [`Decoder`] trait.
+#[cfg(feature = "cadence")]
+fn open_cadence<R, F>(path: &Path, open: F) -> Result<Box<dyn Decoder>, AudioError>
+where
+    R: tpt_av_cadence_core::FormatReader + 'static,
+    F: FnOnce(Box<dyn std::io::Read + Send>) -> tpt_av_cadence_core::Result<R>,
+{
+    let file = std::fs::File::open(path).map_err(AudioError::Io)?;
+    let reader = open(Box::new(file)).map_err(cadence_err)?;
+    Ok(Box::new(CadenceDecoder { reader }))
+}
+
+/// Wraps a cadence format reader so its streaming, real-time-safe
+/// [`tpt_av_cadence_core::Decoder::decode`] loop satisfies the engine's
+/// whole-file [`Decoder::decode_all`] contract. Worker threads only.
+#[cfg(feature = "cadence")]
+struct CadenceDecoder<R: tpt_av_cadence_core::FormatReader + 'static> {
+    reader: R,
+}
+
+#[cfg(feature = "cadence")]
+impl<R: tpt_av_cadence_core::FormatReader + 'static> Decoder for CadenceDecoder<R> {
+    fn decode_all(&mut self) -> Result<DecodedAudio, AudioError> {
+        let info = self.reader.info().clone();
+        let channels = info.channels.max(1) as usize;
+
+        let mut data = Vec::new();
+        let mut buf = vec![0.0f32; 8_192 * channels];
+        loop {
+            let frames = tpt_av_cadence_core::Decoder::decode(self.reader.decoder(), &mut buf)
+                .map_err(cadence_err)?;
+            if frames == 0 {
+                break;
+            }
+            data.extend_from_slice(&buf[..frames * channels]);
+        }
+
+        Ok(DecodedAudio {
+            sample_rate: info.sample_rate,
+            channels: info.channels,
+            data,
+        })
+    }
+}
+
+/// Maps a cadence error onto the engine error type.
+#[cfg(feature = "cadence")]
+fn cadence_err(e: tpt_av_cadence_core::CadenceError) -> AudioError {
+    AudioError::Decode(e.to_string())
 }
 
 /// Built-in WAV decoder (16-bit PCM, 24-bit PCM, and 32-bit float).
@@ -216,12 +312,105 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_extension_names_cadence() {
+    fn unsupported_extension_lists_supported_ones() {
         let e = DecodeRegistry::with_builtins()
-            .open(Path::new("song.flac"))
+            .open(Path::new("song.xyz"))
             .err()
-            .expect("flac must be unsupported until cadence lands");
-        assert!(e.to_string().contains("tpt-cadence"));
+            .expect("no .xyz decoder exists");
+        assert!(e.to_string().contains("no decoder registered for '.xyz'"));
+        assert!(e.to_string().contains("wav"));
+    }
+
+    #[cfg(feature = "cadence")]
+    #[test]
+    fn cadence_decodes_wav_16_bit() {
+        let dir = std::env::temp_dir().join("tpt-av-audio-core-cadence-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cadence16.wav");
+
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        // 10 frames of L=100, R=-300 (raw i16).
+        let mut samples = Vec::new();
+        for _ in 0..10 {
+            samples.push(100i16);
+            samples.push(-300i16);
+        }
+        write_wav(&path, &samples, spec);
+
+        let decoded = decode_file(&DecodeRegistry::with_builtins(), &path).unwrap();
+        assert_eq!(decoded.sample_rate, 48_000);
+        assert_eq!(decoded.channels, 2);
+        // cadence round-trips the exact interleaved samples.
+        assert_eq!(decoded.data.len(), 20);
+        assert!((decoded.data[0] - 100.0 / 32_768.0).abs() < 1e-9);
+        assert!((decoded.data[1] + 300.0 / 32_768.0).abs() < 1e-9);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(feature = "cadence")]
+    #[test]
+    fn cadence_decodes_wav_24_bit() {
+        // 24-bit is in cadence's wheelhouse but not hound's reader API —
+        // the whole reason cadence wins when enabled.
+        let dir = std::env::temp_dir().join("tpt-av-audio-core-cadence-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cadence24.wav");
+
+        // Hand-roll a minimal 24-bit PCM WAV (hound cannot write 24-bit).
+        let frames: [i32; 4] = [0, 1_000_000, -1_000_000, 8_388_607];
+        let mut pcm = Vec::new();
+        for v in frames {
+            pcm.extend_from_slice(&v.to_le_bytes()[..3]);
+        }
+        let header_len = 44usize;
+        let data_len = pcm.len() as u32;
+        let mut bytes = Vec::with_capacity(header_len + pcm.len());
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        bytes.extend_from_slice(&48_000u32.to_le_bytes());
+        bytes.extend_from_slice(&144_000u32.to_le_bytes()); // byte rate
+        bytes.extend_from_slice(&3u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&24u16.to_le_bytes()); // bits
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        bytes.extend_from_slice(&pcm);
+        std::fs::write(&path, &bytes).unwrap();
+
+        let decoded = decode_file(&DecodeRegistry::with_builtins(), &path).unwrap();
+        assert_eq!(decoded.channels, 1);
+        assert_eq!(decoded.data.len(), 4);
+        // 8388607 / 8388608 ≈ full scale.
+        assert!((decoded.data[3] - 1.0).abs() < 1e-3);
+        assert!((decoded.data[2] + 1_000_000.0 / 8_388_608.0).abs() < 1e-6);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(feature = "cadence")]
+    #[test]
+    fn cadence_registers_aiff_and_flac() {
+        let reg = DecodeRegistry::with_builtins();
+        let exts = reg.supported_extensions();
+        for ext in ["aif", "aiff", "flac", "wav"] {
+            assert!(exts.contains(&ext), "missing {ext} in {exts:?}");
+        }
+        // Opening a non-audio file as FLAC reaches cadence's parser (Decode
+        // error), not the registry's Unsupported.
+        let dir = std::env::temp_dir().join("tpt-av-audio-core-cadence-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let junk = dir.join("junk.flac");
+        std::fs::write(&junk, b"not a flac file").unwrap();
+        let e = decode_file(&reg, &junk).expect_err("junk must fail");
+        assert!(!e.to_string().contains("no decoder registered"));
+        let _ = std::fs::remove_file(&junk);
     }
 
     #[test]

@@ -1,0 +1,24 @@
+[package]
+name = "tpt-av-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "The tpt-audio engine: one-crate facade over the tpt-av-audio-* workspace (timeline, mixer, I/O, decoding)"
+
+[dependencies]
+hound = { workspace = true }
+tpt-av-audio-core = { workspace = true }
+tpt-av-audio-io = { workspace = true }
+tpt-av-audio-timeline = { workspace = true }
+tpt-av-audio-utils = { workspace = true }
+
+[features]
+default = []
+# Forward to tpt-av-audio-core: decode through the tpt-cadence suite.
+cadence = ["tpt-av-audio-core/cadence"]
+
+[package.metadata.docs.rs]
+all-features = true

@@ -139,6 +139,28 @@ impl AudioBuffer {
         Ok(())
     }
 
+    /// The absolute peak sample (loudest instantaneous value). Returns 0.0
+    /// for an empty buffer.
+    pub fn peak(&self) -> f32 {
+        self.data.iter().fold(0.0f32, |m, &s| m.max(s.abs()))
+    }
+
+    /// Root-mean-square level of the whole buffer (perceived loudness proxy).
+    /// Returns 0.0 for an empty buffer.
+    pub fn rms(&self) -> f32 {
+        if self.data.is_empty() {
+            return 0.0;
+        }
+        let sum: f32 = self.data.iter().map(|s| s * s).sum();
+        (sum / self.data.len() as f32).sqrt()
+    }
+
+    /// The largest absolute peak across `buffers` — a quick headroom check
+    /// before writing a mix to disk or a device.
+    pub fn combined_peak<'a>(buffers: impl IntoIterator<Item = &'a AudioBuffer>) -> f32 {
+        buffers.into_iter().fold(0.0f32, |m, b| m.max(b.peak()))
+    }
+
     /// Splits a mono interleaved channel out into `out`, per frame.
     ///
     /// `channel` must be less than the channel count.
@@ -224,6 +246,30 @@ mod tests {
         assert_eq!(buf.frames, 2);
         assert_eq!(buf.channels, 1);
         assert!(buf.data.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn peak_rms_measure_levels() {
+        let mut buf = AudioBuffer::new(4, 1);
+        for (i, s) in [0.5f32, -0.25, 0.1, -1.0].iter().enumerate() {
+            buf.data[i] = *s;
+        }
+        assert_eq!(buf.peak(), 1.0);
+        let squares_sum = 0.25f32 + 0.0625 + 0.01 + 1.0;
+        let expected: f32 = (squares_sum / 4.0).sqrt();
+        assert!((buf.rms() - expected).abs() < 1e-6);
+
+        assert_eq!(AudioBuffer::new(0, 2).peak(), 0.0);
+        assert_eq!(AudioBuffer::new(0, 2).rms(), 0.0);
+    }
+
+    #[test]
+    fn combined_peak_spans_buffers() {
+        let mut a = AudioBuffer::new(1, 1);
+        a.data[0] = 0.3;
+        let mut b = AudioBuffer::new(1, 1);
+        b.data[0] = -0.9;
+        assert!((AudioBuffer::combined_peak([&a, &b]) - 0.9).abs() < 1e-6);
     }
 
     #[test]

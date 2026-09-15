@@ -45,7 +45,8 @@ impl NullBackend {
 
     /// Makes subsequent output-stream writes fail (simulates a dead device).
     pub fn set_fail_writes(&self, fail: bool) {
-        *self.fail_writes.lock().unwrap() = fail;
+        // Poison-tolerant: a panicking previous holder leaves the flag valid.
+        *self.fail_writes.lock().unwrap_or_else(|e| e.into_inner()) = fail;
     }
 }
 
@@ -84,7 +85,7 @@ impl AudioBackend for NullBackend {
         _device: &AudioDevice,
         config: StreamConfig,
     ) -> Result<Box<dyn DeviceWriter>, AudioError> {
-        if *self.fail_writes.lock().unwrap() {
+        if *self.fail_writes.lock().unwrap_or_else(|e| e.into_inner()) {
             return Err(AudioError::Backend("null backend: writes disabled".into()));
         }
         Ok(Box::new(NullWriter {

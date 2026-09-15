@@ -16,18 +16,23 @@
 //! Everything implements `serde` so a session round-trips as JSON for
 //! headless rendering.
 
+// Pure data-model crate: no unsafe anywhere.
+#![forbid(unsafe_code)]
+
 pub mod asset;
 pub mod clip;
 pub mod edit;
 pub mod envelope;
 pub mod history;
+pub mod musical;
 pub mod session;
 pub mod track;
 
 pub use asset::{AssetId, AudioAsset};
-pub use clip::{Clip, ClipId};
+pub use clip::{Clip, ClipId, FadeCurve};
 pub use edit::{Edit, InsertClipEdit, MoveClipEdit, RemoveClipEdit, SplitClipEdit};
 pub use envelope::{Envelope, EnvelopePoint, InterpolationMethod};
 pub use history::History;
+pub use musical::GridDivision;
 pub use session::{IdGenerator, Session, SessionId, SessionMetadata};
 pub use track::{Track, TrackId};

@@ -17,7 +17,25 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tpt-av-audio-timeline = { workspace = true }
 tpt-av-audio-utils = { workspace = true }
+tpt-av-cadence-core = { workspace = true, optional = true }
+tpt-av-cadence-wav = { workspace = true, optional = true }
+tpt-av-cadence-aiff = { workspace = true, optional = true }
+tpt-av-cadence-flac = { workspace = true, optional = true }
+
+[features]
+# Decode through the tpt-cadence codec suite (sibling checkout): WAV,
+# AIFF, and FLAC via cadence's real-time-safe decoders. Without this
+# feature, WAV decoding falls back to the built-in hound decoder.
+cadence = [
+    "dep:tpt-av-cadence-core",
+    "dep:tpt-av-cadence-wav",
+    "dep:tpt-av-cadence-aiff",
+    "dep:tpt-av-cadence-flac",
+]
 
 [dev-dependencies]
 # Examples play through the platform backend.
 tpt-av-audio-io = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true

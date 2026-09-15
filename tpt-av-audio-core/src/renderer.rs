@@ -20,7 +20,7 @@ use tpt_av_audio_timeline::{AssetId, Clip};
 use tpt_av_audio_utils::{AudioBuffer, AudioError};
 
 use crate::asset::AssetStore;
-use crate::dsp::resample::linear_resample_into;
+use crate::dsp::channels::{linear_resample_map_placed_into, SourcePlacement};
 use crate::mixer::TrackMixer;
 use crate::scheduler::TimelineState;
 
@@ -32,6 +32,10 @@ pub struct TimelineRenderer {
     snapshot: Option<Arc<crate::scheduler::SessionSnapshot>>,
     /// Preallocated per-track scratch buffers (Main Thread grown).
     track_buffers: Vec<AudioBuffer>,
+    /// One clip-sized scratch: clips render here first, then ADD into the
+    /// track buffer so overlapping clips mix (fades/crossfades shape the
+    /// sum) instead of overwriting each other.
+    clip_scratch: AudioBuffer,
     mixer: TrackMixer,
     playhead: u64,
 }
@@ -44,6 +48,7 @@ impl TimelineRenderer {
             assets,
             snapshot: None,
             track_buffers: Vec::new(),
+            clip_scratch: AudioBuffer::empty(),
             mixer: TrackMixer::new(0),
             playhead: 0,
         }
@@ -59,6 +64,7 @@ impl TimelineRenderer {
         for buf in &mut self.track_buffers {
             buf.reset(buffer_frames, channels);
         }
+        self.clip_scratch.reset(buffer_frames, channels);
         self.mixer = TrackMixer::new(tracks);
         self.sync_buses();
     }
@@ -133,6 +139,7 @@ impl TimelineRenderer {
                     playhead,
                     frames,
                     channels,
+                    &mut self.clip_scratch,
                     scratch,
                 );
             }
@@ -174,6 +181,7 @@ impl TimelineRenderer {
 ///
 /// Allocation-free: reads PCM slices directly from the asset map and writes
 /// into `scratch`.
+#[allow(clippy::too_many_arguments)]
 fn render_clip(
     clip: &Clip,
     asset_map: &std::collections::HashMap<AssetId, Arc<crate::asset::AssetPcm>>,
@@ -181,17 +189,12 @@ fn render_clip(
     playhead: u64,
     frames: usize,
     channels: u16,
+    clip_scratch: &mut AudioBuffer,
     scratch: &mut AudioBuffer,
 ) {
     let Some(pcm) = asset_map.get(&clip.asset_id) else {
         return; // asset not (yet) decoded: render silence for this clip
     };
-
-    // v1 limitation: the asset channel count must match the track bus.
-    // (Downmix/upmix mapping is future work; mismatch renders silence.)
-    if pcm.channels != channels {
-        return;
-    }
 
     // Overlap of [clip.start, clip.end) with [playhead, playhead + frames).
     let overlap_start = playhead.max(clip.start_frame);
@@ -210,32 +213,53 @@ fn render_clip(
         pcm.sample_rate as f64 / session_rate as f64
     };
 
-    // Fractional source position (in source frames, relative to pcm.data)
-    // for the first overlap frame.
-    let clip_local = overlap_start - clip.start_frame; // session frames into clip
-    let src_start = (clip.source_offset as f64 + clip_local as f64) * ratio;
+    // Source positioning: clip-local coordinates with optional loop
+    // wrapping (the wrap makes source position piecewise-linear, so the
+    // placement carries the loop region instead of a plain start offset).
+    let clip_local_start = overlap_start - clip.start_frame;
+    let placement = SourcePlacement {
+        source_offset_frames: clip.source_offset,
+        clip_local_start,
+        loop_region: match (clip.loop_start, clip.loop_end) {
+            (Some(ls), Some(le)) => Some((ls, le)),
+            _ => None,
+        },
+    };
 
-    // Resample read into a scratch region of the track buffer.
-    // `linear_resample_into` writes `out_frames` frames at `first_out_frame`.
+    // 1. Resample + channel-map into the clip scratch (mono→stereo fill,
+    //    constant-power fold-down, proportional blocks, loop wrap).
     let scratch_channels = scratch.channels;
-    linear_resample_into(
+    clip_scratch.clear();
+    linear_resample_map_placed_into(
         &pcm.data,
         pcm.channels,
-        src_start,
+        placement,
         ratio,
-        &mut scratch.data,
+        &mut clip_scratch.data,
         scratch_channels,
-        first_out_frame,
+        0,
         out_frames,
     );
 
+    // 2. Shape the clip in isolation (envelopes + fades).
     apply_envelopes_and_fades(
         clip,
         overlap_start,
         out_frames,
         channels,
-        &mut scratch.data[..],
+        &mut clip_scratch.data,
     );
+
+    // 3. ADD the shaped clip into the track buffer: overlapping clips mix,
+    //    so crossfades blend instead of the last clip winning.
+    let start_sample = first_out_frame * channels as usize;
+    let len = out_frames * channels as usize;
+    for (dst, src) in scratch.data[start_sample..start_sample + len]
+        .iter_mut()
+        .zip(&clip_scratch.data[..len])
+    {
+        *dst += src;
+    }
 }
 
 /// Multiplies the freshly-written clip region by clip volume/pan envelopes
@@ -259,14 +283,17 @@ fn apply_envelopes_and_fades(
             gain *= env.value_at(clip_local);
         }
 
-        // Fades.
+        // Fades (shape per the clip's curves; progress t runs 0→1 across
+        // the ramp).
         if clip.fade_in_frames > 0 && clip_local < clip.fade_in_frames {
-            gain *= clip_local as f32 / clip.fade_in_frames as f32;
+            let t = clip_local as f32 / clip.fade_in_frames as f32;
+            gain *= clip.fade_in_curve.fade_in_gain(t);
         }
         if clip.fade_out_frames > 0 {
             let from_end = clip.duration_frames.saturating_sub(clip_local);
             if from_end <= clip.fade_out_frames {
-                gain *= from_end as f32 / clip.fade_out_frames as f32;
+                let t = 1.0 - from_end as f32 / clip.fade_out_frames as f32;
+                gain *= clip.fade_out_curve.fade_out_gain(t);
             }
         }
 
@@ -344,6 +371,10 @@ mod tests {
             pan_envelope: None,
             fade_in_frames: 0,
             fade_out_frames: 0,
+            loop_start: None,
+            loop_end: None,
+            fade_in_curve: Default::default(),
+            fade_out_curve: Default::default(),
         }
     }
 
@@ -456,6 +487,144 @@ mod tests {
         assert!((buf.data[0] - 1.0).abs() < 1e-6); // src pos 0.0 → frame 0
         assert!((buf.data[2] - 0.9).abs() < 1e-6); // src pos 0.5 = lerp(1.0, 0.8)
         assert!((buf.data[2 * 2] - 0.8).abs() < 1e-6); // src pos 1.0 → frame 1
+    }
+
+    #[test]
+    fn mono_asset_upmixes_to_stereo_bus() {
+        let pcm = crate::asset::AssetPcm {
+            sample_rate: 48_000,
+            channels: 1,
+            data: vec![0.75; 100],
+        };
+        let store = crate::asset::AssetStore::new();
+        store.insert(AssetId(1), pcm);
+        let session = session_with_clip(48_000, basic_clip());
+        let state = Arc::new(TimelineState::new(session));
+        let mut renderer = TimelineRenderer::new(Arc::clone(&state), Arc::new(store));
+        renderer.prepare(50, 2);
+
+        let mut buf = AudioBuffer::new(50, 2);
+        renderer.render(&mut buf).unwrap();
+        assert!(buf.data.iter().all(|&s| (s - 0.75).abs() < 1e-6));
+    }
+
+    #[test]
+    fn stereo_asset_folds_into_mono_bus() {
+        let pcm = crate::asset::AssetPcm {
+            sample_rate: 48_000,
+            channels: 2,
+            data: [1.0f32, 0.0].repeat(50), // interleaved L=1.0, R=0.0, 50 frames
+        };
+        let store = crate::asset::AssetStore::new();
+        store.insert(AssetId(1), pcm);
+        let session = session_with_clip(48_000, basic_clip());
+        let state = Arc::new(TimelineState::new(session));
+        let mut renderer = TimelineRenderer::new(Arc::clone(&state), Arc::new(store));
+        renderer.prepare(50, 1);
+
+        let mut buf = AudioBuffer::new(50, 1);
+        renderer.render(&mut buf).unwrap();
+        // Constant-power fold: (1 + 0) / sqrt(2).
+        let expected = 1.0 / 2.0f32.sqrt();
+        assert!(buf.data.iter().all(|&s| (s - expected).abs() < 1e-6));
+    }
+
+    #[test]
+    fn loop_region_wraps_playback() {
+        // Mono ramp asset 0..24; the clip plays 10 frames looping [4, 8).
+        let pcm = crate::asset::AssetPcm {
+            sample_rate: 48_000,
+            channels: 1,
+            data: (0..24).map(|i| i as f32).collect(),
+        };
+        let store = crate::asset::AssetStore::new();
+        store.insert(AssetId(1), pcm);
+
+        let mut session = Session::new("loop", 48_000);
+        session.add_track("A");
+        let clip_id = session.generate_clip_id();
+        let clip = Clip::new(clip_id, AssetId(1), 0, 10).with_loop(4, 8);
+        session.track_mut(TrackId(1)).unwrap().insert_clip(clip);
+
+        let state = Arc::new(TimelineState::new(session));
+        let mut renderer = TimelineRenderer::new(Arc::clone(&state), Arc::new(store));
+        renderer.prepare(16, 1);
+
+        let mut buf = AudioBuffer::new(16, 1);
+        renderer.render(&mut buf).unwrap();
+        let expected = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 4.0, 5.0];
+        for (i, want) in expected.iter().enumerate() {
+            assert!((buf.data[i] - want).abs() < 1e-6, "frame {i}");
+        }
+        // Frames past the clip duration (10) are silence.
+        assert!(buf.data[10..].iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn equal_power_crossfade_blends_overlap() {
+        // Two clips on one track overlapping by 10 frames; the left fades
+        // out and the right fades in with equal-power curves over the
+        // overlap. Asset A is constant 1.0, asset B constant 0.5.
+        let store = crate::asset::AssetStore::new();
+        store.insert(
+            AssetId(1),
+            crate::asset::AssetPcm {
+                sample_rate: 48_000,
+                channels: 1,
+                data: vec![1.0; 100],
+            },
+        );
+        store.insert(
+            AssetId(2),
+            crate::asset::AssetPcm {
+                sample_rate: 48_000,
+                channels: 1,
+                data: vec![0.5; 100],
+            },
+        );
+
+        let mut session = Session::new("xfade", 48_000);
+        session.add_track("A");
+        // Clip A: [0, 60), equal-power fade-out over its last 10 frames.
+        // Clip B: [50, 150), equal-power fade-in over its first 10 frames.
+        let a = Clip::new(session.generate_clip_id(), AssetId(1), 0, 60)
+            .with_fades(0, 10)
+            .with_fade_curves(FadeCurve::Linear, FadeCurve::EqualPower);
+        let b = Clip::new(session.generate_clip_id(), AssetId(2), 50, 100)
+            .with_fades(10, 0)
+            .with_fade_curves(FadeCurve::EqualPower, FadeCurve::Linear);
+        session.track_mut(TrackId(1)).unwrap().insert_clip(a);
+        session.track_mut(TrackId(1)).unwrap().insert_clip(b);
+
+        let state = Arc::new(TimelineState::new(session));
+        let mut renderer = TimelineRenderer::new(Arc::clone(&state), Arc::new(store));
+        renderer.prepare(200, 1);
+
+        let mut buf = AudioBuffer::new(200, 1);
+        renderer.render(&mut buf).unwrap();
+
+        // Overlap is frames [50, 60). Midpoint frame 55: left is 5/10 into
+        // its fade-out (cos 45°), right is 5/10 into its fade-in (sin 45°).
+        let mid = 55;
+        let gl = FadeCurve::EqualPower.fade_out_gain(0.5);
+        let gr = FadeCurve::EqualPower.fade_in_gain(0.5);
+        let expected = 1.0 * gl + 0.5 * gr;
+        assert!(
+            (buf.data[mid] - expected).abs() < 1e-5,
+            "mid {}",
+            buf.data[mid]
+        );
+
+        // First frame of the overlap: full left, ~zero right.
+        assert!((buf.data[50] - 1.0).abs() < 1e-4);
+        // Last overlap frame (59): left at cos(0.9·π/2) ≈ 0.156, right at
+        // 0.5·sin(0.9·π/2) ≈ 0.494. Equal-power crossfades of correlated
+        // material overshoot slightly near the middle — expected.
+        let gl = FadeCurve::EqualPower.fade_out_gain(0.9);
+        let gr = FadeCurve::EqualPower.fade_in_gain(0.9);
+        assert!((buf.data[59] - (gl + 0.5 * gr)).abs() < 1e-4);
+        // Past the overlap, pure right at full 0.5.
+        assert!((buf.data[60] - 0.5).abs() < 1e-4);
     }
 
     #[test]

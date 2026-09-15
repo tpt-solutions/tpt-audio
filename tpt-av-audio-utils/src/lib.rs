@@ -10,6 +10,9 @@
 //! It intentionally has no external dependencies so every other crate in the
 //! workspace can build on it without licensing or compile-time risk.
 
+// Pure data-structure crate: no unsafe anywhere.
+#![forbid(unsafe_code)]
+
 pub mod buffer;
 pub mod error;
 pub mod sample;

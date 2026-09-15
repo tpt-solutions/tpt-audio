@@ -24,8 +24,34 @@ path ever allocates.
 
 ## Use as a library
 
-Add the crates you need to your `Cargo.toml` (published names match the
-directory names):
+The easy path: one dependency, one struct.
+
+```toml
+[dependencies]
+tpt-av-audio = "0.1"
+```
+
+```rust
+use tpt_av_audio::{Engine, Session};
+
+let mut engine = Engine::new(Session::new("demo", 48_000), 512, 2)?;
+let voice = engine.load_asset("voice.wav")?;      // decode + cache + register
+
+let mut session = engine.session();
+let track = session.add_track("vocals");
+let clip = tpt_av_audio::Clip::new(session.generate_clip_id(), voice, 0, 48_000);
+session.track_mut(track).unwrap().insert_clip(clip);
+engine.set_session(session);
+
+let mut out = tpt_av_audio::AudioBuffer::new(512, 2);
+engine.render(&mut out)?;                          // 512 mixed frames, RT-safe
+```
+
+One-call helpers: `tpt_av_audio::play_file("song.wav")` (live playback) and
+`tpt_av_audio::offline::render_session_to_wav(&session, "mix.wav")`.
+
+Need full control? Add the individual crates — every layer is independently
+usable (published names match the directories):
 
 ```toml
 [dependencies]
@@ -33,29 +59,7 @@ tpt-av-audio-utils = "0.1"
 tpt-av-audio-timeline = "0.1"
 tpt-av-audio-core = "0.1"
 tpt-av-audio-io = "0.1"
-```
-
-Minimal non-destructive playback of a WAV:
-
-```rust
-use std::sync::Arc;
-use tpt_av_audio_core::{AssetPcm, AssetStore, TimelineRenderer, TimelineState};
-use tpt_av_audio_timeline::{Clip, Session};
-
-let mut session = Session::new("demo", 48_000);
-let track = session.add_track("clip");
-let asset_id = session.register_asset(/* AudioAsset { … } */);
-
-// Cache decoded PCM (Main Thread), then render (Audio Thread):
-let store = Arc::new(AssetStore::new());
-store.insert(asset_id, AssetPcm { sample_rate: 48_000, channels: 2, data: pcm });
-
-let state = Arc::new(TimelineState::new(session));
-let mut renderer = TimelineRenderer::new(Arc::clone(&state), Arc::clone(&store));
-renderer.prepare(256, 2);
-
-let mut buffer = tpt_av_audio_utils::AudioBuffer::new(256, 2);
-renderer.render(&mut buffer).unwrap(); // advance the playhead 256 frames
+tpt-av-audio-plugin = "0.1"
 ```
 
 ## Headless rendering (timeline JSON → WAV)
@@ -80,6 +84,20 @@ cargo run -p tpt-av-audio-core --example mixer_demo
 
 Force the device-free sink (CI, headless machines) with
 `TPT_AUDIO_BACKEND=null`.
+
+## Decoding with tpt-cadence
+
+Audio decoding goes through the [`tpt-cadence`](https://github.com/tpt-solutions/tpt-cadence)
+codec suite. It is wired in behind a feature with path dependencies on a
+sibling checkout (`../tpt-cadence`):
+
+```bash
+cargo test  --all --features tpt-av-audio/cadence   # WAV + AIFF + FLAC via cadence
+cargo test  --all                                   # WAV-only fallback (hound), no sibling needed
+```
+
+Once cadence is pushed to GitHub, swap the path dependencies in the root
+`Cargo.toml` for git dependencies and make `cadence` a default feature.
 
 ## License
 

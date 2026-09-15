@@ -12,3 +12,6 @@ description = "Plugin hosting foundation: parameters, automation envelopes, buse
 serde = { workspace = true }
 tpt-av-audio-timeline = { workspace = true }
 tpt-av-audio-utils = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true

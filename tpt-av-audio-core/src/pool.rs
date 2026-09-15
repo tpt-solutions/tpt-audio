@@ -35,13 +35,17 @@ pub struct DecodePool {
 impl DecodePool {
     /// Spawns `workers` background threads decoding through `registry` into
     /// `store`.
-    pub fn new(workers: usize, registry: Arc<DecodeRegistry>, store: Arc<AssetStore>) -> Self {
+    pub fn new(
+        workers: usize,
+        registry: Arc<DecodeRegistry>,
+        store: Arc<AssetStore>,
+    ) -> Result<Self, tpt_av_audio_utils::AudioError> {
         let workers = workers.max(1);
         let (job_tx, job_rx) = mpsc::channel::<DecodeJob>();
         let (event_tx, event_rx) = mpsc::channel::<AssetId>();
         let job_rx = Arc::new(std::sync::Mutex::new(job_rx));
 
-        let handles = (0..workers)
+        let handles: Vec<_> = (0..workers)
             .map(|i| {
                 let job_rx = Arc::clone(&job_rx);
                 let event_tx = event_tx.clone();
@@ -51,7 +55,9 @@ impl DecodePool {
                     .name(format!("tpt-audio-decode-{i}"))
                     .spawn(move || loop {
                         let job = {
-                            let Ok(rx) = job_rx.lock() else { break };
+                            // Poison-tolerant: a panicking worker must not
+                            // wedge the pool's job queue.
+                            let rx = job_rx.lock().unwrap_or_else(|e| e.into_inner());
                             match rx.recv() {
                                 Ok(job) => job,
                                 Err(_) => break, // all senders dropped
@@ -78,15 +84,19 @@ impl DecodePool {
                             }
                         }
                     })
-                    .expect("failed to spawn decode worker")
+                    .map_err(|e| {
+                        tpt_av_audio_utils::AudioError::Backend(format!(
+                            "failed to spawn decode worker: {e}"
+                        ))
+                    })
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
-        Self {
+        Ok(Self {
             tx: job_tx,
             workers: handles,
             events: event_rx,
-        }
+        })
     }
 
     /// Submits a decode job. The asset appears in the store once a worker
@@ -148,7 +158,8 @@ mod tests {
             2,
             Arc::new(DecodeRegistry::with_builtins()),
             Arc::clone(&store),
-        );
+        )
+        .unwrap();
 
         pool.submit(AssetId(1), &path);
         pool.submit(AssetId(2), &path);
@@ -167,7 +178,8 @@ mod tests {
             1,
             Arc::new(DecodeRegistry::with_builtins()),
             Arc::clone(&store),
-        );
+        )
+        .unwrap();
         pool.submit(AssetId(9), "/definitely/not/here.wav");
         pool.join();
         assert!(store.get(&AssetId(9)).is_none());
@@ -185,7 +197,8 @@ mod tests {
             1,
             Arc::new(DecodeRegistry::with_builtins()),
             Arc::clone(&store),
-        );
+        )
+        .unwrap();
         pool.submit(AssetId(5), &path);
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

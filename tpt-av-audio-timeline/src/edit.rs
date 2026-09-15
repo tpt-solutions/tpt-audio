@@ -171,6 +171,116 @@ impl Edit for MoveClipEdit {
     }
 }
 
+/// Creates an equal-power crossfade between two clips on the same track.
+///
+/// The right clip is moved so it overlaps the left clip's tail by exactly
+/// `length` frames (`right.start = left.end - length`), the left clip gets
+/// an equal-power fade-out and the right clip an equal-power fade-in of
+/// that length. Both originals are captured for revert.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CrossfadeEdit {
+    track_id: TrackId,
+    left_clip: ClipId,
+    right_clip: ClipId,
+    length: u64,
+    /// Captured (left, right) originals for revert.
+    original: Option<(Clip, Clip)>,
+}
+
+impl CrossfadeEdit {
+    /// Prepares a crossfade of `length` frames between two clips.
+    ///
+    /// Requires `length` to fit inside both clips and the right clip to
+    /// start at or after the left clip's start.
+    pub fn new(track_id: TrackId, left_clip: ClipId, right_clip: ClipId, length: u64) -> Self {
+        Self {
+            track_id,
+            left_clip,
+            right_clip,
+            length,
+            original: None,
+        }
+    }
+
+    fn capture(&self, session: &Session) -> Result<(Clip, Clip), AudioError> {
+        let track = session
+            .track(self.track_id)
+            .ok_or(AudioError::TrackNotFound(self.track_id.0))?;
+        let left = track
+            .clip(self.left_clip)
+            .ok_or(AudioError::ClipNotFound(self.left_clip.0))?;
+        let right = track
+            .clip(self.right_clip)
+            .ok_or(AudioError::ClipNotFound(self.right_clip.0))?;
+        Ok((left.clone(), right.clone()))
+    }
+}
+
+impl Edit for CrossfadeEdit {
+    fn label(&self) -> &'static str {
+        "crossfade"
+    }
+
+    fn apply(&mut self, session: &mut Session) -> Result<(), AudioError> {
+        if self.left_clip == self.right_clip {
+            return Err(AudioError::InvalidEdit(
+                "crossfade needs two distinct clips".into(),
+            ));
+        }
+        let (left, right) = self.capture(session)?;
+
+        if left.duration_frames < self.length || right.duration_frames < self.length {
+            return Err(AudioError::InvalidEdit(format!(
+                "crossfade length {} exceeds a clip duration",
+                self.length
+            )));
+        }
+        if right.start_frame < left.start_frame {
+            return Err(AudioError::InvalidEdit(
+                "right clip must start at or after the left clip".into(),
+            ));
+        }
+
+        if self.original.is_none() {
+            self.original = Some((left.clone(), right.clone()));
+        }
+
+        let new_right_start = left.end_frame().saturating_sub(self.length);
+        let track = session
+            .track_mut(self.track_id)
+            .ok_or(AudioError::TrackNotFound(self.track_id.0))?;
+
+        let mut left = left;
+        left.fade_out_frames = self.length;
+        left.fade_out_curve = crate::clip::FadeCurve::EqualPower;
+
+        let mut right = right;
+        right.start_frame = new_right_start;
+        right.fade_in_frames = self.length;
+        right.fade_in_curve = crate::clip::FadeCurve::EqualPower;
+
+        track.insert_clip(left);
+        track.insert_clip(right);
+        Ok(())
+    }
+
+    fn revert(&mut self, session: &mut Session) -> Result<(), AudioError> {
+        let (left, right) = self
+            .original
+            .clone()
+            .ok_or_else(|| AudioError::InvalidEdit("crossfade reverted before apply".into()))?;
+
+        let track = session
+            .track_mut(self.track_id)
+            .ok_or(AudioError::TrackNotFound(self.track_id.0))?;
+        track.remove_clip(left.id)?;
+        track.remove_clip(right.id)?;
+        track.insert_clip(left);
+        track.insert_clip(right);
+        Ok(())
+    }
+}
+
 /// Splits a clip at a timeline frame, producing two clips.
 ///
 /// The left half keeps the original clip id; the right half receives a fresh
@@ -278,6 +388,10 @@ mod tests {
             pan_envelope: None,
             fade_in_frames: 0,
             fade_out_frames: 0,
+            loop_start: None,
+            loop_end: None,
+            fade_in_curve: Default::default(),
+            fade_out_curve: Default::default(),
         }
     }
 
@@ -367,6 +481,64 @@ mod tests {
         assert_eq!(clips.len(), 1);
         assert_eq!(clips[0].id, original_id);
         assert_eq!(clips[0].duration_frames, 1_000);
+    }
+
+    #[test]
+    fn crossfade_overlaps_and_shapes_then_reverts() {
+        use crate::clip::FadeCurve;
+
+        let mut s = session();
+        let t = TrackId(1);
+        let c1 = clip(&mut s, 1_000, 1_000); // [1000, 2000)
+        let c2 = clip(&mut s, 3_000, 1_000); // [3000, 4000)
+        let (c1_id, c2_id) = (c1.id, c2.id);
+        s.track_mut(t).unwrap().insert_clip(c1);
+        s.track_mut(t).unwrap().insert_clip(c2);
+
+        let mut edit = CrossfadeEdit::new(t, c1_id, c2_id, 200);
+        edit.apply(&mut s).unwrap();
+
+        let track = s.track(t).unwrap();
+        let left = track.clip(c1_id).unwrap();
+        let right = track.clip(c2_id).unwrap();
+        // Right pulled back to overlap the left tail by exactly 200.
+        assert_eq!(right.start_frame, 1_800);
+        assert_eq!(left.end_frame(), 2_000);
+        assert_eq!(left.fade_out_frames, 200);
+        assert_eq!(right.fade_in_frames, 200);
+        assert_eq!(left.fade_out_curve, FadeCurve::EqualPower);
+        assert_eq!(right.fade_in_curve, FadeCurve::EqualPower);
+
+        edit.revert(&mut s).unwrap();
+        let track = s.track(t).unwrap();
+        assert_eq!(track.clip(c2_id).unwrap().start_frame, 3_000);
+        assert_eq!(track.clip(c1_id).unwrap().fade_out_frames, 0);
+        assert_eq!(track.clip(c1_id).unwrap().fade_out_curve, FadeCurve::Linear);
+    }
+
+    #[test]
+    fn crossfade_rejects_bad_geometry() {
+        let mut s = session();
+        let t = TrackId(1);
+        let c1 = clip(&mut s, 1_000, 100); // short left
+        let c2 = clip(&mut s, 3_000, 1_000);
+        let (c1_id, c2_id) = (c1.id, c2.id);
+        s.track_mut(t).unwrap().insert_clip(c1);
+        s.track_mut(t).unwrap().insert_clip(c2);
+
+        // Length exceeds the left clip.
+        let mut edit = CrossfadeEdit::new(t, c1_id, c2_id, 500);
+        assert!(matches!(
+            edit.apply(&mut s),
+            Err(AudioError::InvalidEdit(_))
+        ));
+
+        // Same clip twice.
+        let mut edit = CrossfadeEdit::new(t, c2_id, c2_id, 100);
+        assert!(matches!(
+            edit.apply(&mut s),
+            Err(AudioError::InvalidEdit(_))
+        ));
     }
 
     #[test]

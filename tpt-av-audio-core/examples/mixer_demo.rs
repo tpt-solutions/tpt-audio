@@ -71,6 +71,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             start_frame: start,
             source_offset: 0,
             duration_frames: CLIP_FRAMES,
+            loop_start: None,
+            loop_end: None,
+            fade_in_curve: Default::default(),
+            fade_out_curve: Default::default(),
             volume_envelope: Some(Envelope::with_points(
                 vec![
                     EnvelopePoint {

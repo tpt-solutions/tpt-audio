@@ -80,6 +80,10 @@ fn build_session() -> Session {
             pan_envelope: None,
             fade_in_frames: 240,
             fade_out_frames: 480,
+            loop_start: None,
+            loop_end: None,
+            fade_in_curve: Default::default(),
+            fade_out_curve: Default::default(),
         };
         session.track_mut(track).unwrap().insert_clip(clip);
     }

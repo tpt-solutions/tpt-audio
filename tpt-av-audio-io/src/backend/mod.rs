@@ -6,7 +6,7 @@
 //! | Module | Platform | Status |
 //! |---|---|---|
 //! | [`wasapi`] | Windows | Shared-mode render/capture (ported from the old `platform-windows` crate) |
-//! | [`pipewire`] | Linux | Device enumeration via `pw-dump`; streams pending native `pipewire-rs` |
+//! | [`pipewire`] | Linux | Enumeration via `pw-dump`; streams via `pw-cat` (native `pipewire-rs` is the future upgrade) |
 //! | [`coreaudio`] | macOS | Stub — implementation pending |
 //! | [`archon`] | Archon | Research-gated stub (blocked on `tpt-archon-bridge`) |
 //! | [`NullBackend`] | all | Test/CI sink, no OS dependency |

@@ -13,6 +13,10 @@
 //! at runtime; `TPT_AUDIO_BACKEND=null` forces the null backend (useful in CI
 //! and tests).
 
+// Unsafe code is confined to the WASAPI backend (COM interop; every call
+// site documents its invariants). The PipeWire backend is unsafe-free.
+#![deny(unsafe_op_in_unsafe_fn)]
+
 pub mod backend;
 pub mod device;
 pub mod router;

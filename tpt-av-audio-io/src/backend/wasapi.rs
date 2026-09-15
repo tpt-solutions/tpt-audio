@@ -106,69 +106,76 @@ fn com_scoped(mode: windows::Win32::System::Com::COINIT) -> Result<ComGuard, win
 }
 
 unsafe fn enumerate_devices_com() -> Result<Vec<AudioDevice>, AudioError> {
-    let mut devices = Vec::new();
+    // SAFETY: caller has initialized COM for this thread (see `com_scoped`); all
+    // WASAPI calls below are apartment-threaded COM as required.
+    unsafe {
+        let mut devices = Vec::new();
 
-    let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
-        .map_err(|e| {
-        AudioError::Backend(format!("CoCreateInstance(MMDeviceEnumerator): {e}"))
-    })?;
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(|e| {
+                AudioError::Backend(format!("CoCreateInstance(MMDeviceEnumerator): {e}"))
+            })?;
 
-    for (flow, direction) in [(eRender, Direction::Output), (eCapture, Direction::Input)] {
-        let collection = enumerator
-            .EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE)
-            .map_err(|e| AudioError::Backend(format!("EnumAudioEndpoints: {e}")))?;
-        let count = collection
-            .GetCount()
-            .map_err(|e| AudioError::Backend(format!("GetCount: {e}")))?;
+        for (flow, direction) in [(eRender, Direction::Output), (eCapture, Direction::Input)] {
+            let collection = enumerator
+                .EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE)
+                .map_err(|e| AudioError::Backend(format!("EnumAudioEndpoints: {e}")))?;
+            let count = collection
+                .GetCount()
+                .map_err(|e| AudioError::Backend(format!("GetCount: {e}")))?;
 
-        let default_device = enumerator.GetDefaultAudioEndpoint(flow, eConsole).ok();
+            let default_device = enumerator.GetDefaultAudioEndpoint(flow, eConsole).ok();
 
-        for i in 0..count {
-            let device = collection
-                .Item(i)
-                .map_err(|e| AudioError::Backend(format!("Item({i}): {e}")))?;
-            let id = match device.GetId() {
-                Ok(id) => id.to_string().unwrap_or_else(|_| format!("dev_{i}")),
-                Err(_) => format!("dev_{i}"),
-            };
+            for i in 0..count {
+                let device = collection
+                    .Item(i)
+                    .map_err(|e| AudioError::Backend(format!("Item({i}): {e}")))?;
+                let id = match device.GetId() {
+                    Ok(id) => id.to_string().unwrap_or_else(|_| format!("dev_{i}")),
+                    Err(_) => format!("dev_{i}"),
+                };
 
-            let is_default = default_device.as_ref().is_some_and(|d| {
-                d.GetId()
-                    .map(|s| s.to_string().is_ok_and(|s| s == id))
-                    .unwrap_or(false)
-            });
+                let is_default = default_device.as_ref().is_some_and(|d| {
+                    d.GetId()
+                        .map(|s| s.to_string().is_ok_and(|s| s == id))
+                        .unwrap_or(false)
+                });
 
-            devices.push(AudioDevice::simple(
-                id,
-                format!("{direction:?} device {i}"),
-                direction,
-                2,
-                is_default,
-            ));
+                devices.push(AudioDevice::simple(
+                    id,
+                    format!("{direction:?} device {i}"),
+                    direction,
+                    2,
+                    is_default,
+                ));
+            }
         }
-    }
 
-    Ok(devices)
+        Ok(devices)
+    }
 }
 
 /// Finds an active endpoint by id in either direction.
 unsafe fn find_device_com(enumerator: &IMMDeviceEnumerator, device_id: &str) -> Option<IMMDevice> {
-    for flow in [eRender, eCapture] {
-        if let Ok(collection) = enumerator.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE) {
-            if let Ok(count) = collection.GetCount() {
-                for i in 0..count {
-                    if let Ok(device) = collection.Item(i) {
-                        if let Ok(id) = device.GetId() {
-                            if id.to_string().is_ok_and(|s| s == device_id) {
-                                return Some(device);
+    // SAFETY: caller has initialized COM for this thread; read-only endpoint walk.
+    unsafe {
+        for flow in [eRender, eCapture] {
+            if let Ok(collection) = enumerator.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE) {
+                if let Ok(count) = collection.GetCount() {
+                    for i in 0..count {
+                        if let Ok(device) = collection.Item(i) {
+                            if let Ok(id) = device.GetId() {
+                                if id.to_string().is_ok_and(|s| s == device_id) {
+                                    return Some(device);
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        None
     }
-    None
 }
 
 const REFTIMES_PER_SEC: i64 = 10_000_000;
@@ -353,27 +360,33 @@ unsafe fn open_render_client(
     device_id: &str,
     config: StreamConfig,
 ) -> Result<(IAudioClient, IAudioRenderClient, u32), windows::core::Error> {
-    let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-    let device = find_device_com(&enumerator, device_id).ok_or(E_FAIL)?;
+    // SAFETY: caller has initialized COM for this thread; `wfx` outlives the
+    // Initialize call and the client is activated before any audio thread
+    // touches the writer.
+    unsafe {
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let device = find_device_com(&enumerator, device_id).ok_or(E_FAIL)?;
 
-    let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
+        let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
 
-    let wfx = float_format(config);
+        let wfx = float_format(config);
 
-    let flags = AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
-    client.Initialize(
-        AUDCLNT_SHAREMODE_SHARED,
-        flags,
-        frames_to_hns(config.buffer_size, config.sample_rate),
-        0,
-        &wfx,
-        None,
-    )?;
+        let flags = AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+        client.Initialize(
+            AUDCLNT_SHAREMODE_SHARED,
+            flags,
+            frames_to_hns(config.buffer_size, config.sample_rate),
+            0,
+            &wfx,
+            None,
+        )?;
 
-    let render: IAudioRenderClient = client.GetService()?;
-    let buffer_frames = client.GetBufferSize()?;
-    client.Start()?;
-    Ok((client, render, buffer_frames))
+        let render: IAudioRenderClient = client.GetService()?;
+        let buffer_frames = client.GetBufferSize()?;
+        client.Start()?;
+        Ok((client, render, buffer_frames))
+    }
 }
 
 unsafe fn open_capture_client(
@@ -381,31 +394,37 @@ unsafe fn open_capture_client(
     config: StreamConfig,
     loopback: bool,
 ) -> Result<(IAudioClient, IAudioCaptureClient), windows::core::Error> {
-    let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-    let device = find_device_com(&enumerator, device_id).ok_or(E_FAIL)?;
+    // SAFETY: caller has initialized COM for this thread; same invariants as the
+    // render client.
+    unsafe {
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let device = find_device_com(&enumerator, device_id).ok_or(E_FAIL)?;
 
-    let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
+        let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
 
-    let wfx = float_format(config);
+        let wfx = float_format(config);
 
-    // Loopback capture only applies to render endpoints; AUTOCONVERTPCM lets
-    // the requested format differ from the device mix format.
-    let mut flags = AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
-    if loopback {
-        flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
+        // Loopback capture only applies to render endpoints; AUTOCONVERTPCM lets
+        // the requested format differ from the device mix format.
+        let mut flags =
+            AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+        if loopback {
+            flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
+        }
+        client.Initialize(
+            AUDCLNT_SHAREMODE_SHARED,
+            flags,
+            frames_to_hns(config.buffer_size, config.sample_rate),
+            0,
+            &wfx,
+            None,
+        )?;
+
+        let capture: IAudioCaptureClient = client.GetService()?;
+        client.Start()?;
+        Ok((client, capture))
     }
-    client.Initialize(
-        AUDCLNT_SHAREMODE_SHARED,
-        flags,
-        frames_to_hns(config.buffer_size, config.sample_rate),
-        0,
-        &wfx,
-        None,
-    )?;
-
-    let capture: IAudioCaptureClient = client.GetService()?;
-    client.Start()?;
-    Ok((client, capture))
 }
 
 #[cfg(test)]

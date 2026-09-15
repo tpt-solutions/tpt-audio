@@ -9,3 +9,6 @@ rust-version.workspace = true
 description = "Shared types, sample conversions, buffers, time math, and errors for the tpt-av-audio engine workspace"
 
 [dependencies]
+
+[package.metadata.docs.rs]
+all-features = true

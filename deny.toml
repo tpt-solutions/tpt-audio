@@ -25,6 +25,20 @@ allow = [
     "Unicode-3.0",
 ]
 
+[advisories]
+version = 2
+# RustSec advisory database check: known vulnerabilities are a hard failure
+# in CI (see the `security` job). `yanked` versions are denied too.
+yanked = "deny"
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+
+[sources]
+# Supply-chain: dependencies may only come from crates.io (or, once tpt-cadence
+# is pushed, its GitHub repo — add it to allow-git then).
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

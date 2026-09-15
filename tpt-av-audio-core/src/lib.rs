@@ -15,23 +15,34 @@
 //! - [`mixer`] — multi-track [`TrackMixer`] (gain/pan/mute/solo).
 //! - [`renderer`] — [`TimelineRenderer`]: snapshot → PCM → envelopes → mix.
 //! - [`scheduler`] — [`TimelineState`] lock-free double-buffered snapshots.
-//! - [`dsp`] — gain, pan, fade, resampling (rubato + inline linear).
+//! - [`dsp`] — gain, pan, fade, channel mapping, resampling (rubato +
+//!   inline linear), real-time metering.
+//! - [`overview`] — waveform peak-bucket caches for editor rendering.
 //! - [`asset`] / [`decode`] / [`pool`] / [`ring`] — asset caches, WAV
 //!   decoding, background decode pool, lock-free SPSC handoff.
+
+// The crate's only unsafe code is the SPSC ring buffer (`ring.rs`), which
+// is the canonical UnsafeCell producer/consumer layout and is documented
+// there. Everything else is safe by construction.
+#![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod asset;
 pub mod decode;
 pub mod dsp;
 pub mod graph;
 pub mod mixer;
+pub mod overview;
 pub mod pool;
 pub mod renderer;
 pub mod ring;
 pub mod scheduler;
 
 pub use asset::{AssetPcm, AssetStore};
+pub use decode::{DecodeRegistry, DecodedAudio, Decoder};
 pub use graph::{AudioGraph, AudioNode, NodeId};
 pub use mixer::{TrackBus, TrackMixer};
+pub use overview::WaveformOverview;
+pub use pool::DecodePool;
 pub use renderer::TimelineRenderer;
 pub use scheduler::{SessionSnapshot, TimelineState};
 

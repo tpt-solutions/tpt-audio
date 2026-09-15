@@ -38,9 +38,16 @@ impl AssetPcm {
 }
 
 /// Lock-free store of decoded assets, keyed by [`AssetId`].
+///
+/// Readers (`get`/`snapshot`/`len`) are wait-free via the `arc-swap` map —
+/// the Audio Thread never takes a lock. Writers (`insert`/`remove`) do a
+/// read-modify-write of the whole map and are serialized by `write_lock`
+/// (a plain mutex, Main Thread only): without it, two concurrent inserts
+/// would each publish a map that overwrites the other's entry.
 #[derive(Default)]
 pub struct AssetStore {
     map: ArcSwap<HashMap<AssetId, Arc<AssetPcm>>>,
+    write_lock: std::sync::Mutex<()>,
 }
 
 impl AssetStore {
@@ -51,6 +58,7 @@ impl AssetStore {
 
     /// Inserts (or replaces) the PCM for `id`. Main Thread only.
     pub fn insert(&self, id: AssetId, pcm: AssetPcm) {
+        let _writer = self.write_lock.lock();
         let mut next = (**self.map.load()).clone();
         next.insert(id, Arc::new(pcm));
         self.map.store(Arc::new(next));
@@ -58,6 +66,7 @@ impl AssetStore {
 
     /// Removes an asset. Main Thread only.
     pub fn remove(&self, id: &AssetId) {
+        let _writer = self.write_lock.lock();
         let mut next = (**self.map.load()).clone();
         next.remove(id);
         self.map.store(Arc::new(next));
@@ -125,6 +134,28 @@ mod tests {
         assert_eq!(new.data[0], 0.9);
         // Old Arc still valid (a render in flight keeps its view).
         assert_eq!(old.frames(), 10);
+    }
+
+    #[test]
+    fn concurrent_inserts_never_lose_updates() {
+        // Regression: concurrent read-modify-write inserts used to race —
+        // the last publisher overwrote the other's entry (exposed by the
+        // multi-worker DecodePool).
+        let store = std::sync::Arc::new(AssetStore::new());
+        let mut handles = Vec::new();
+        for worker in 0..8u64 {
+            let store = std::sync::Arc::clone(&store);
+            handles.push(std::thread::spawn(move || {
+                for i in 0..32u64 {
+                    let id = worker * 32 + i;
+                    store.insert(AssetId(id), pcm(1, 0.5));
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(store.len(), 8 * 32, "concurrent inserts lost entries");
     }
 
     #[test]

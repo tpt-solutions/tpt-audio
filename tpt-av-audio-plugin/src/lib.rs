@@ -20,6 +20,9 @@
 //! [`ParameterAutomation`] (envelope-driven, timeline-frame based), and
 //! wire side-chains and buses with [`bus`].
 
+// Hosting foundation: no unsafe anywhere.
+#![forbid(unsafe_code)]
+
 pub mod automation;
 pub mod bus;
 pub mod parameter;
