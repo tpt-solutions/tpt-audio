@@ -18,8 +18,10 @@ Dual-licensed MIT / Apache-2.0 — TPT Solutions
 > (`cargo audit` clean, RustSec advisories + source policy in cargo-deny,
 > `#![forbid(unsafe_code)]` on the pure crates, SECURITY.md, MSRV CI job,
 > Dependabot, CONTRIBUTING.md).
-> Full workspace: `cargo test` passing (158 base / 161 with cadence),
-> clippy `-D warnings` clean, fmt clean, full `cargo deny check` passing.
+> Crossfades and musical-time helpers are in (Phase 7), with Engine-level
+> undo/redo. Full workspace: `cargo test` passing (198 base / 201 with
+> cadence), clippy `-D warnings` clean, fmt clean, full `cargo deny check`
+> passing.
 > Remaining items are external blockers (pushing cadence, crates.io publishing,
 > CoreAudio/Archon upstreams, CLAP/VST3 hosting) or deferred.
 
@@ -168,16 +170,24 @@ Dual-licensed MIT / Apache-2.0 — TPT Solutions
   + validated `set_loop_region`), wrap math in `Clip::source_position`,
   renderer support via the placed resampler, split keeps the region only on
   the half that fully contains it
-- [ ] **Crossfades**: overlap-aware equal-power crossfade between adjacent
-  clips on the same track
+- [x] **Crossfades**: `FadeCurve` (linear/equal-power) on clip fades,
+  overlap-aware undoable `CrossfadeEdit` (pulls the right clip over the
+  left tail and sets matching equal-power fades), and a `History`-backed
+  `Engine::apply_edit`/`undo`/`redo`. Building this exposed and fixed a
+  latent renderer flaw: overlapping clips on the same track used to
+  overwrite each other instead of summing (clips now render into a
+  clip-scratch and add, so fades shape the mix)
 - [x] **WAV export options**: `WavExportFormat` (16/24-bit PCM, 32-bit float)
   in the offline renderer — also fixed tail over-write past session duration
 - [x] **docs.rs metadata + doc-example coverage**: `[package.metadata.docs.rs]`
   all-features on every crate; facade crate documents the flagship flow
 - [ ] **CI job for the cadence feature**: run the full gate with
   `--features tpt-av-audio/cadence` in CI once tpt-cadence is pushed
-- [ ] **Musical time helpers**: bars/beats conversions from
-  `SessionMetadata.tempo_bpm` (informational today) for grid-snapping UIs
+- [x] **Musical time helpers**: `timeline::musical` — beat/bar lengths
+  (quarter-note tempo convention, denominator-aware beat units),
+  `beat_at_frame`/`frame_at_beat`, 1-based `bar_and_beat`,
+  `frame_at_bar_beat`, and `snap_to_grid` (bar/beat/half/quarter);
+  degrades gracefully when tempo is unset
 
 ## Open Questions / Risks
 - ~~`gui`/`desktop` retirement destination not yet chosen (Phase 0)~~ — **resolved:** archived under `legacy/` (reversible: can be split to a new repo later if desired)

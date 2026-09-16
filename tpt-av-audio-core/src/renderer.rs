@@ -322,7 +322,7 @@ mod tests {
     use crate::asset::{AssetPcm, AssetStore};
     use crate::scheduler::TimelineState;
     use tpt_av_audio_timeline::{
-        Clip, ClipId, Envelope, EnvelopePoint, InterpolationMethod, Session, TrackId,
+        Clip, ClipId, Envelope, EnvelopePoint, FadeCurve, InterpolationMethod, Session, TrackId,
     };
 
     fn store_with_tone(

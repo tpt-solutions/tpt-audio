@@ -273,7 +273,7 @@ impl Engine {
     /// The session republish happens here, so the next render reflects it.
     pub fn apply_edit(
         &mut self,
-        mut edit: Box<dyn Edit>,
+        edit: Box<dyn Edit>,
     ) -> Result<(), tpt_av_audio_utils::AudioError> {
         let mut session = self.session();
         self.history.apply(edit, &mut session)?;

@@ -90,6 +90,21 @@ buildable under `legacy/` (excluded from the workspace).
   unsafe-block contracts in the WASAPI backend, MSRV (1.75) CI job,
   Dependabot for Actions, and `CONTRIBUTING.md`.
 
+### Added — crossfades, undo, musical time
+- **Crossfades**: `FadeCurve` (linear/equal-power) per clip fade with the
+  renderer applying the shape, an undoable `CrossfadeEdit` that pulls the
+  right clip over the left tail by the crossfade length and sets matching
+  equal-power fades, and `Engine::apply_edit`/`undo`/`redo`/`can_undo`/
+  `can_redo` (History-backed, session auto-republished).
+- **Musical time** (`tpt-av-audio-timeline::musical`): beat/bar frame
+  math from session metadata (quarter-note tempo convention,
+  denominator-aware beat units), `bar_and_beat`/`frame_at_bar_beat`
+  conversions and `snap_to_grid` (bar/beat/half/quarter divisions).
+- **Fixed**: overlapping clips on the same track overwrote each other in
+  the renderer instead of summing — clips now render into a clip-sized
+  scratch and are added into the track buffer, so fades and crossfades
+  blend the overlap (found by the new crossfade test, never covered before).
+
 ### Added — tooling & policy
 - `deny.toml` (cargo-deny): permissive-only dependency policy; GPL-2.0,
   GPL-3.0, LGPL-2.1/3.0, AGPL-3.0, and MPL-2.0 are denied (plus
