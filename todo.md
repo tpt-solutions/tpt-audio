@@ -223,7 +223,7 @@ Dual-licensed MIT / Apache-2.0 — TPT Solutions
   degrades gracefully when tempo is unset
 
 ## Open Questions / Risks
-- ~~`gui`/`desktop` retirement destination not yet chosen (Phase 0)~~ — **resolved:** archived under `legacy/` (reversible: can be split to a new repo later if desired)
+- ~~`gui`/`desktop` retirement destination not yet chosen (Phase 0)~~ — **resolved:** split out into its own repo, [`tpt-mixer`](https://github.com/tpt-solutions/tpt-mixer) (formerly archived under `legacy/`, now removed from this repo)
 - ~~`tpt-cadence` repo availability is an external blocker for Phase 4~~ — **resolved:** pushed to GitHub, now a git dependency; opus/aac/mp3/vorbis codecs remain in progress upstream but are outside this repo's scope
 - `platform-archon` was research-gated/blocked upstream even in the old repo — **still blocked**; the capability model survives in `tpt-av-audio-io/src/backend/archon.rs`
 - PipeWire stream playback/capture needs the native `pipewire-rs` port (enumeration works via `pw-dump`)

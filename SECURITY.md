@@ -3,8 +3,9 @@
 ## Supported versions
 
 The workspace is pre-1.0; only the latest `master` receives security fixes.
-The archived router app under `legacy/` is **not supported** — it is kept
-for history only.
+The old router app has been split into its own repository,
+[`tpt-mixer`](https://github.com/tpt-solutions/tpt-mixer) — report issues
+there, not here.
 
 ## Reporting a vulnerability
 

@@ -19,8 +19,9 @@ All crates in the workspace share a single version number defined in the root
 This release pivots the repository from the **router/mixer desktop app** into
 the **`tpt-av-audio-*` non-destructive audio engine library workspace**
 described in `spec2.txt`. The complete old app (crates, installer manifests,
-packaging, signing/website docs, `spec.txt`) is preserved unmodified and
-buildable under `legacy/` (excluded from the workspace).
+packaging, signing/website docs, `spec.txt`) has been split out into its own
+repository, [`tpt-mixer`](https://github.com/tpt-solutions/tpt-mixer)
+(formerly archived here under `legacy/`).
 
 ### Added — engine workspace
 - **`tpt-av-audio-utils`** — dependency-free foundation: `Sample` conversions
@@ -134,7 +135,7 @@ buildable under `legacy/` (excluded from the workspace).
   24-bit magnitude, not the full `i32` range); found and fixed while
   replacing `hound`, with a new regression test in `tpt-av-audio-core::decode`.
 
-### Retired (preserved under `legacy/`)
+### Retired (split into [`tpt-mixer`](https://github.com/tpt-solutions/tpt-mixer))
 - `core`, `gui`, `desktop` — the router app (egui UI, presets, i18n,
   diagnostics, update checks).
 - `platform-windows`, `platform-linux`, `platform-archon` — superseded by
@@ -155,7 +156,8 @@ buildable under `legacy/` (excluded from the workspace).
 
 ## [1.0.0] — Router app (archived)
 
-The desktop router release line is archived with the app under `legacy/`.
-Its feature set (visual routing matrix, per-route gain/mute, per-app
-volume, presets, hotplug detection, diagnostics, crash reporting, WiX/MSI
-and Flatpak packaging) is preserved there; see `legacy/` for the full app.
+The desktop router release line has moved to its own repository,
+[`tpt-mixer`](https://github.com/tpt-solutions/tpt-mixer). Its feature set
+(visual routing matrix, per-route gain/mute, per-app volume, presets,
+hotplug detection, diagnostics, crash reporting, WiX/MSI and Flatpak
+packaging) is preserved there.

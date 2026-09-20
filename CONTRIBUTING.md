@@ -39,8 +39,8 @@ The `cadence` feature uses path dependencies on a sibling
 - Crates are `tpt-av-audio-*`; `tpt-av-audio` is the umbrella facade —
   user-facing conveniences go there, engine internals stay in the
   workspace crates.
-- `legacy/` holds the archived router app; it is excluded from the
-  workspace and does not build in CI. Don't modernize it.
+- The old router app previously archived under `legacy/` has moved to its
+  own repository, [`tpt-mixer`](https://github.com/tpt-solutions/tpt-mixer).
 - Public APIs need doc comments with runnable `# Examples` where practical;
   `no_run` is fine for I/O.
 

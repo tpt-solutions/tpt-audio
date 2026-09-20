@@ -8,7 +8,6 @@ members = [
     "tpt-av-audio-io",
     "tpt-av-audio-plugin",
 ]
-exclude = ["legacy"]
 
 [workspace.package]
 version = "0.1.0"

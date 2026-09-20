@@ -14,9 +14,8 @@
 > **Pivot note:** this repository previously housed a *router/mixer desktop
 > app* (per-app audio routing with `core`/`gui`/`desktop`/`platform-*`
 > crates). It has pivoted into the `tpt-av-audio-*` **engine library
-> workspace** described in `spec2.txt`. The complete old app is preserved,
-> buildable and unmodified, under [`legacy/`](legacy/) (along with the old
-> `spec.txt`, installer manifests, and app-distribution docs).
+> workspace** described in `spec2.txt`. The old app has been split out into
+> its own repository, [`tpt-mixer`](https://github.com/tpt-solutions/tpt-mixer).
 
 ---
 

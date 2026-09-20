@@ -1,7 +1,8 @@
 # QUICKSTART — tpt-audio engine library
 
-Build and use the `tpt-av-audio-*` engine workspace. For the archived
-router desktop app, see `legacy/` in the repository root.
+Build and use the `tpt-av-audio-*` engine workspace. The old router desktop
+app now lives in its own repository,
+[`tpt-mixer`](https://github.com/tpt-solutions/tpt-mixer).
 
 ## Requirements
 
