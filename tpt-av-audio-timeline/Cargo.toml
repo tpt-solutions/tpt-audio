@@ -7,6 +7,9 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Pure non-destructive edit data model: sessions, tracks, clips, envelopes, edits, and undo history"
+readme = "README.md"
+keywords = ["audio", "timeline", "daw", "non-destructive", "editing"]
+categories = ["multimedia::audio", "data-structures"]
 
 [dependencies]
 serde = { workspace = true }

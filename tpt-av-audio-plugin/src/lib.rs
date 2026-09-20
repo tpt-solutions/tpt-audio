@@ -6,25 +6,32 @@
 //!
 //! ## Hosting status
 //!
-//! VST3 and CLAP *hosting* backends are future work. Note that `nih-plug`
-//! — named in the original plan — is a plugin **development** framework and
-//! deliberately does not expose a hosting API, so it cannot provide the
-//! host side. The realistic paths are:
+//! **VST3 is not supported and will not be**: the Steinberg VST3 SDK is
+//! GPLv3-or-proprietary dual-licensed, which conflicts with this
+//! workspace's MIT/Apache-2.0-only `deny.toml` policy. Decision recorded
+//! 2026-09-21.
 //!
-//! - **CLAP**: `clack-host` (pure Rust, permissively licensed), or
-//! - **VST3**: `vst3-sys`-based COM hosting (Windows) plus the VST3 SDK
-//!   module scanning on macOS/Linux.
+//! **CLAP** is supported behind the `clap` feature, via
+//! [`clack-host`](https://docs.rs/clack-host) (pure Rust, `MIT OR
+//! Apache-2.0`, crates.io) — see [`clap_host::ClapPluginNode`]. Note that
+//! `nih-plug` — named in the original plan — is a plugin **development**
+//! framework and deliberately does not expose a hosting API, so it could
+//! not have provided this.
 //!
-//! Everything in this crate is backend-agnostic and already useful: hosts
-//! describe plugins with [`HostedPlugin`], automate parameters through
-//! [`ParameterAutomation`] (envelope-driven, timeline-frame based), and
-//! wire side-chains and buses with [`bus`].
+//! Everything else in this crate is backend-agnostic and already useful:
+//! hosts describe plugins with [`HostedPlugin`], automate parameters
+//! through [`ParameterAutomation`] (envelope-driven, timeline-frame based),
+//! and wire side-chains and buses with [`bus`].
 
-// Hosting foundation: no unsafe anywhere.
-#![forbid(unsafe_code)]
+// Hosting foundation: no unsafe anywhere, except the `clap` module, which
+// is the sole, documented FFI boundary (see its module docs) for loading
+// third-party `.clap` dynamic libraries.
+#![deny(unsafe_code)]
 
 pub mod automation;
 pub mod bus;
+#[cfg(feature = "clap")]
+pub mod clap_host;
 pub mod parameter;
 
 pub use automation::ParameterAutomation;

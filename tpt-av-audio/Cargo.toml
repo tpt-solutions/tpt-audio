@@ -7,11 +7,14 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "The tpt-audio engine: one-crate facade over the tpt-av-audio-* workspace (timeline, mixer, I/O, decoding)"
+readme = "README.md"
+keywords = ["audio", "daw", "real-time", "mixer", "engine"]
+categories = ["multimedia::audio", "multimedia"]
 
 [dependencies]
-hound = { workspace = true }
 tpt-av-audio-core = { workspace = true }
 tpt-av-audio-io = { workspace = true }
+tpt-av-audio-plugin = { workspace = true, optional = true }
 tpt-av-audio-timeline = { workspace = true }
 tpt-av-audio-utils = { workspace = true }
 
@@ -19,6 +22,9 @@ tpt-av-audio-utils = { workspace = true }
 default = []
 # Forward to tpt-av-audio-core: decode through the tpt-cadence suite.
 cadence = ["tpt-av-audio-core/cadence"]
+# CLAP plugin hosting: adapts tpt-av-audio-plugin's HostedPlugin backends
+# (currently ClapPluginNode) onto tpt-av-audio-core's AudioNode graph.
+clap = ["dep:tpt-av-audio-plugin", "tpt-av-audio-plugin/clap"]
 
 [package.metadata.docs.rs]
 all-features = true

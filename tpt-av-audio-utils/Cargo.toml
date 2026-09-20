@@ -7,6 +7,9 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Shared types, sample conversions, buffers, time math, and errors for the tpt-av-audio engine workspace"
+readme = "README.md"
+keywords = ["audio", "pcm", "buffer", "sample", "dsp"]
+categories = ["multimedia::audio", "data-structures"]
 
 [dependencies]
 

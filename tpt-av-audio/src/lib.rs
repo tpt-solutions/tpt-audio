@@ -36,11 +36,15 @@
 pub mod engine;
 pub mod offline;
 pub mod player;
+#[cfg(feature = "clap")]
+pub mod plugin_bridge;
 
 pub use offline::WavExportFormat;
 
 pub use engine::Engine;
 pub use player::{play_file, play_file_blocking, Playback};
+#[cfg(feature = "clap")]
+pub use plugin_bridge::HostedPluginAdapter;
 
 // The workspace surface, re-exported for one-stop imports.
 pub use tpt_av_audio_core as core_engine;

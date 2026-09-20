@@ -326,13 +326,15 @@ mod tests {
     use tpt_av_audio_timeline::Clip;
 
     fn write_wav(path: &Path, frames: usize) {
-        let spec = hound::WavSpec {
+        use tpt_av_audio_utils::wav::{SampleFormat, WavSpec, WavWriter};
+
+        let spec = WavSpec {
             channels: 2,
             sample_rate: 48_000,
             bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
+            sample_format: SampleFormat::Int,
         };
-        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        let mut writer = WavWriter::create(path, spec).unwrap();
         for i in 0..frames * 2 {
             writer
                 .write_sample(if i % 2 == 0 { 16_000 } else { -16_000 })

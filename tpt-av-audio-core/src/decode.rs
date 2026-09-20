@@ -6,15 +6,15 @@
 //! cadence's real-time-safe decoders for **WAV, AIFF, and FLAC** and
 //! decodes through the unified `tpt_av_cadence_core::Decoder` contract
 //! (allocation-free `decode(&mut [f32])`). Without the feature, `.wav`
-//! decodes via the built-in [`WavDecoder`] (hound) so CI and fresh clones
-//! without the sibling checkout still build. Either way, extension
+//! decodes via the built-in [`WavDecoder`] (in-house, dependency-free) so CI
+//! and fresh clones without the sibling checkout still build. Either way, extension
 //! dispatch happens through [`DecodeRegistry`] (Main Thread only) and the
 //! rest of the engine never sees a codec.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use hound::{SampleFormat as HoundFormat, WavReader};
+use tpt_av_audio_utils::wav::{SampleFormat as WavFormat, WavReader};
 use tpt_av_audio_utils::{AudioError, Sample};
 
 /// Fully decoded audio, interleaved canonical f32.
@@ -55,7 +55,7 @@ pub type DecoderFactory = Arc<dyn Fn(&Path) -> Result<Box<dyn Decoder>, AudioErr
 impl DecodeRegistry {
     /// Creates a registry preloaded with every decoder this build supports:
     /// the `tpt-cadence` suite (WAV/AIFF/FLAC) under the `cadence` feature,
-    /// plus the built-in hound WAV decoder as the fallback.
+    /// plus the built-in, dependency-free WAV decoder as the fallback.
     pub fn with_builtins() -> Self {
         let mut reg = Self::default();
         let wav = Arc::new(|path: &Path| Ok(Box::new(WavDecoder::open(path)?) as Box<dyn Decoder>));
@@ -179,7 +179,7 @@ pub struct WavDecoder {
 impl WavDecoder {
     /// Validates the WAV header eagerly.
     pub fn open(path: &Path) -> Result<Self, AudioError> {
-        let reader = WavReader::open(path).map_err(hound_err)?;
+        let reader = WavReader::open(path)?;
         let spec = reader.spec();
         if spec.channels == 0 || spec.sample_rate == 0 {
             return Err(AudioError::Decode(format!(
@@ -195,33 +195,41 @@ impl WavDecoder {
 
 impl Decoder for WavDecoder {
     fn decode_all(&mut self) -> Result<DecodedAudio, AudioError> {
-        let mut reader = WavReader::open(&self.path).map_err(hound_err)?;
+        let mut reader = WavReader::open(&self.path)?;
         let spec = reader.spec();
         let channels = spec.channels;
         let sample_rate = spec.sample_rate;
 
         let mut data = Vec::new();
         match spec.sample_format {
-            HoundFormat::Float => {
+            WavFormat::Float => {
                 for sample in reader.samples::<f32>() {
-                    data.push(sample.map_err(|e| AudioError::Decode(e.to_string()))?);
+                    data.push(sample?);
                 }
             }
-            HoundFormat::Int => match spec.bits_per_sample {
+            WavFormat::Int => match spec.bits_per_sample {
                 8 => {
-                    // hound yields 8-bit WAV as i8; scale symmetrically.
+                    // 8-bit WAV decodes as i8; scale symmetrically.
                     for s in reader.samples::<i8>() {
-                        data.push(s.map_err(hound_err)? as f32 / 128.0);
+                        data.push(s? as f32 / 128.0);
                     }
                 }
                 16 => {
                     for s in reader.samples::<i16>() {
-                        data.push(s.map_err(hound_err)?.to_f32());
+                        data.push(s?.to_f32());
                     }
                 }
-                24 | 32 => {
+                24 => {
+                    // Read as the raw 24-bit magnitude (±2^23), not the full
+                    // i32 range, so this must scale by 2^23, not `to_f32`'s
+                    // 2^31 (which is for genuine 32-bit samples below).
                     for s in reader.samples::<i32>() {
-                        data.push(s.map_err(hound_err)?.to_f32());
+                        data.push(s? as f32 / 8_388_608.0);
+                    }
+                }
+                32 => {
+                    for s in reader.samples::<i32>() {
+                        data.push(s?.to_f32());
                     }
                 }
                 bits => {
@@ -241,10 +249,6 @@ impl Decoder for WavDecoder {
     }
 }
 
-fn hound_err(e: hound::Error) -> AudioError {
-    AudioError::Decode(e.to_string())
-}
-
 /// Convenience: decode a whole file through a registry.
 pub fn decode_file(registry: &DecodeRegistry, path: &Path) -> Result<DecodedAudio, AudioError> {
     let mut decoder = registry.open(path)?;
@@ -254,7 +258,7 @@ pub fn decode_file(registry: &DecodeRegistry, path: &Path) -> Result<DecodedAudi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hound::{SampleFormat, WavSpec, WavWriter};
+    use tpt_av_audio_utils::wav::{SampleFormat, WavSpec, WavWriter};
 
     fn write_wav(path: &Path, samples: &[i16], spec: WavSpec) {
         let mut writer = WavWriter::create(path, spec).unwrap();
@@ -285,6 +289,36 @@ mod tests {
         assert_eq!(decoded.data.len(), 200);
         // Sample 0 stays ~0 (i16 → f32 asymmetric scale).
         assert!(decoded.data[0].abs() < 1e-6);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn decodes_24_bit_wav_at_the_right_scale() {
+        // Regression test: 24-bit samples are read as the raw ±2^23
+        // magnitude, not the full i32 range, so decoding must scale by
+        // 2^23 rather than reusing i32's to_f32 (2^31).
+        let dir = std::env::temp_dir().join("tpt-av-audio-core-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test24.wav");
+
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 24,
+            sample_format: SampleFormat::Int,
+        };
+        let mut writer = WavWriter::create(&path, spec).unwrap();
+        for s in [0i32, 8_388_607, -8_388_608, 1_000_000] {
+            writer.write_sample(s).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let decoded = decode_file(&DecodeRegistry::with_builtins(), &path).unwrap();
+        assert_eq!(decoded.data.len(), 4);
+        assert!((decoded.data[0] - 0.0).abs() < 1e-9);
+        assert!((decoded.data[1] - 1.0).abs() < 1e-6);
+        assert!((decoded.data[2] + 1.0).abs() < 1e-6);
+        assert!((decoded.data[3] - 1_000_000.0 / 8_388_608.0).abs() < 1e-6);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -328,11 +362,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cadence16.wav");
 
-        let spec = hound::WavSpec {
+        let spec = WavSpec {
             channels: 2,
             sample_rate: 48_000,
             bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
+            sample_format: SampleFormat::Int,
         };
         // 10 frames of L=100, R=-300 (raw i16).
         let mut samples = Vec::new();
@@ -355,13 +389,12 @@ mod tests {
     #[cfg(feature = "cadence")]
     #[test]
     fn cadence_decodes_wav_24_bit() {
-        // 24-bit is in cadence's wheelhouse but not hound's reader API —
-        // the whole reason cadence wins when enabled.
         let dir = std::env::temp_dir().join("tpt-av-audio-core-cadence-tests");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cadence24.wav");
 
-        // Hand-roll a minimal 24-bit PCM WAV (hound cannot write 24-bit).
+        // Hand-roll a minimal 24-bit PCM WAV directly (independent of the
+        // in-house WavWriter above, to keep this test's fixture self-contained).
         let frames: [i32; 4] = [0, 1_000_000, -1_000_000, 8_388_607];
         let mut pcm = Vec::new();
         for v in frames {

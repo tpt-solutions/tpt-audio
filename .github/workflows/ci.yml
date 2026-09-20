@@ -32,6 +32,43 @@ jobs:
       - name: Test
         run: cargo test --all
 
+  cadence:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build (cadence feature)
+        run: cargo build --workspace --features tpt-av-audio-core/cadence
+
+      - name: Test (cadence feature)
+        run: cargo test --workspace --features tpt-av-audio-core/cadence
+
+  clap:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # clack-host's MSRV (1.85) exceeds this workspace's floor (1.75, see
+      # the msrv job), so the clap feature is exercised only here, on
+      # stable, and deliberately left out of the msrv job below.
+      - name: Build (clap feature)
+        run: cargo build --workspace --features tpt-av-audio/clap
+
+      - name: Test (clap feature)
+        run: cargo test --workspace --features tpt-av-audio/clap
+
   security:
     runs-on: ubuntu-latest
 

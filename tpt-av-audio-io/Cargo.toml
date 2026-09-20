@@ -7,9 +7,11 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "OS audio I/O: device enumeration, stream management, and platform backends (WASAPI, PipeWire, CoreAudio)"
+readme = "README.md"
+keywords = ["audio", "wasapi", "pipewire", "coreaudio", "hardware"]
+categories = ["multimedia::audio", "hardware-support", "os"]
 
 [dependencies]
-log = { workspace = true }
 serde = { workspace = true }
 tpt-av-audio-utils = { workspace = true }
 

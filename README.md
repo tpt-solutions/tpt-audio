@@ -28,11 +28,18 @@ editors, DAWs, podcast tools, and game-audio middleware on top of raw PCM
 from [`tpt-cadence`](https://github.com/tpt-solutions/tpt-cadence).
 
 Decoding runs on the [`tpt-cadence`](https://github.com/tpt-solutions/tpt-cadence)
-codec suite (pure Rust, MIT OR Apache-2.0): build with
-`--features tpt-av-audio/cadence` to enable WAV/AIFF/FLAC via cadence's
-real-time-safe decoders. Without the feature (or before cadence is pushed to
-GitHub — it is currently a sibling checkout wired through path dependencies),
-WAV decoding falls back to hound so CI and fresh clones still build.
+codec suite (pure Rust, MIT OR Apache-2.0, pulled in as a git dependency):
+build with `--features tpt-av-audio/cadence` to enable WAV/AIFF/FLAC via
+cadence's real-time-safe decoders. Without the feature, WAV decoding falls
+back to a built-in, dependency-free decoder so CI and fresh clones still
+build without an Apache-2.0-only dependency in the tree.
+
+Plugin hosting supports [CLAP](https://cleveraudio.org/) via
+[`clack-host`](https://github.com/prokopyl/clack) (crates.io, MIT OR
+Apache-2.0): build with `--features tpt-av-audio/clap` to load `.clap`
+bundles as `AudioNode`s in the graph. VST3 is not supported — the Steinberg
+VST3 SDK is GPLv3-or-proprietary dual-licensed, which conflicts with this
+workspace's MIT/Apache-2.0-only dependency policy.
 
 Core tenets:
 
@@ -40,7 +47,9 @@ Core tenets:
    metadata references (trim, split, fade, automate) over `AudioAsset`s.
 2. **Real-time safe** — the audio path is allocation-free, lock-free, and
    panic-free, enforced by an allocation-counting test
-   (`tpt-av-audio-core/tests/rt_safety.rs`).
+   (`tpt-av-audio-core/tests/rt_safety.rs`) and the shared
+   [`tpt-av-test`](https://github.com/tpt-solutions/tpt-av-test) harness
+   (`tpt-av-audio-core/tests/real_time_harness.rs`).
 3. **Clean thread boundaries** — Main Thread mutates state and decodes;
    Audio Thread only reads lock-free snapshots and mixes.
 4. **Permissive-only, audited dependencies** — `cargo-deny` in CI denies
@@ -67,7 +76,7 @@ tpt-av-audio-io (routes the final buffer to OS audio hardware)
 | [`tpt-av-audio-timeline`](tpt-av-audio-timeline) | Pure data model: `Session`/`Track`/`Clip`/`Envelope`, undoable edits, `Session::save`/`load` JSON documents |
 | [`tpt-av-audio-core`](tpt-av-audio-core) | Real-time engine: `AudioGraph`, `TrackMixer`, `TimelineRenderer`, DSP, lock-free `TimelineState`, asset caches, cadence-backed decoding |
 | [`tpt-av-audio-io`](tpt-av-audio-io) | OS I/O: device enumeration + streams; WASAPI (Windows), PipeWire (Linux, `pw-dump` + `pw-cat` streams), CoreAudio (stub), Archon (research) |
-| [`tpt-av-audio-plugin`](tpt-av-audio-plugin) | Hosting foundation: parameters, envelope-driven automation, buses, side-chaining (CLAP/VST3 hosts are future work) |
+| [`tpt-av-audio-plugin`](tpt-av-audio-plugin) | Hosting foundation: parameters, envelope-driven automation, buses, side-chaining, CLAP hosting via `clack-host` (`clap` feature; VST3 will not be supported — license conflict) |
 
 ## Quickstart
 

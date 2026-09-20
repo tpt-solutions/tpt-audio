@@ -29,8 +29,9 @@ RustSec advisory (via the `cargo-audit` database) for confirmed issues.
    SPSC ring buffer's `UnsafeCell` slot; each site documents its invariants.
    The `utils`, `timeline`, and `plugin` crates are `#![forbid(unsafe_code)]`.
 3. **Untrusted input:** timeline JSON documents (`Session::load`) and audio
-   files (through `tpt-cadence`/hound) are untrusted input. Fuzzing-friendly
-   boundaries; treat malformed-input crashes as security bugs.
+   files (through `tpt-cadence`, or the built-in dependency-free WAV
+   fallback) are untrusted input. Fuzzing-friendly boundaries; treat
+   malformed-input crashes as security bugs.
 
 ## Supply-chain policy
 

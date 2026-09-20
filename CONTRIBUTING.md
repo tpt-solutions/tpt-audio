@@ -1,7 +1,11 @@
 # Contributing to tpt-audio
 
-Thanks for helping build the TPT AV audio engine. This document covers the
-rules that keep the workspace coherent.
+This is a solo-maintained project. Pull requests are not accepted — please
+open an issue instead (bug report, feature request, or question) and it
+will be triaged from there.
+
+The rest of this document covers the internal rules that keep the workspace
+coherent.
 
 ## Ground rules
 
@@ -19,7 +23,7 @@ rules that keep the workspace coherent.
 
 ```bash
 cargo build --all
-cargo test  --all                    # hound WAV fallback, no sibling needed
+cargo test  --all                    # built-in WAV fallback, no sibling needed
 cargo test  --all --features tpt-av-audio-core/cadence   # real tpt-cadence decoders
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings

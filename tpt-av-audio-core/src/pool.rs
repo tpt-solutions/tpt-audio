@@ -130,7 +130,7 @@ impl DecodePool {
 mod tests {
     use super::*;
     use crate::decode::DecodeRegistry;
-    use hound::{SampleFormat, WavSpec, WavWriter};
+    use tpt_av_audio_utils::wav::{SampleFormat, WavSpec, WavWriter};
 
     fn write_wav(path: &PathBuf, frames: usize) {
         let spec = WavSpec {

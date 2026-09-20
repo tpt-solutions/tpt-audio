@@ -96,12 +96,11 @@ Dual-licensed MIT / Apache-2.0 — TPT Solutions
 ---
 
 ## Phase 4 — Asset Management
-- [ ] Add `tpt-cadence` as external git dependency — **partially blocked:** the codec crates
-  (core/wav/aiff/flac/pcm stable; opus/aac/mp3/vorbis in progress) exist locally but are
-  uncommitted/unpushed on GitHub (origin `master` is still the structure-only commit). Until
-  pushed, cadence is wired through **path dependencies on the sibling `../tpt-cadence`
-  checkout** behind the `tpt-av-audio-core/cadence` feature; when it lands on GitHub, swap
-  the path deps for git deps in the root `Cargo.toml`. *No in-repo build work on tpt-cadence itself.*
+- [x] Add `tpt-cadence` as external git dependency — pushed to
+  `https://github.com/tpt-solutions/tpt-cadence` (origin `master` @ `ff0bd6b`); the four
+  codec crates (`tpt-av-cadence-core`/`wav`/`aiff`/`flac`) are now `git` deps in the root
+  `Cargo.toml` behind the `tpt-av-audio-core/cadence` feature (path deps on the sibling
+  checkout retired). `deny.toml`'s `sources.allow-git` updated accordingly.
 - [x] Integrate `tpt-cadence` decode calls into asset loading (Main Thread)
   (WAV/AIFF/FLAC decode through cadence's real-time-safe `Decoder` contract via
   `DecodeRegistry` under the `cadence` feature; hound WAV remains the no-feature fallback.
@@ -117,8 +116,32 @@ Dual-licensed MIT / Apache-2.0 — TPT Solutions
 
 ## Phase 5 — Plugin Hosting (Future)
 - [x] Scaffold `tpt-av-audio-plugin` crate (`HostedPlugin`, `ParameterSet`, `ParameterAutomation`, `BusLayout`, `BusRouter`, `SidechainDucker`)
-- [ ] VST3 support via `nih-plug` — **re-scoped:** `nih-plug` is a plugin *development* framework and provides no hosting API; VST3 hosting needs a `vst3-sys`-based host (future)
-- [ ] CLAP support via `nih-plug` — **re-scoped:** CLAP hosting should use `clack-host` (future)
+- [ ] VST3 support — **blocked, will not implement:** the Steinberg VST3 SDK
+  is GPLv3-or-proprietary dual-licensed, incompatible with this workspace's
+  MIT/Apache-2.0-only `deny.toml` policy. Decision recorded 2026-09-21.
+- [x] CLAP support via `clack-host` (crates.io, `MIT OR Apache-2.0`, behind
+  the `clap` feature on `tpt-av-audio-plugin`/`tpt-av-audio`):
+  `ClapPluginNode` in `tpt-av-audio-plugin/src/clap_host.rs` loads a `.clap`
+  bundle (explicit path, first plugin in the entry), activates + starts it
+  as a fixed-channel audio effect, snapshots its `params` extension into
+  `ParameterInfo`, and bridges `AudioBuffer`'s interleaved layout to CLAP's
+  per-channel buffers via pre-allocated scratch (allocation-free `process`).
+  `set_parameter` queues a `ParamValueEvent`, flushed per block (not
+  sample-accurate — a later enhancement). `#![forbid(unsafe_code)]` on the
+  crate was narrowed to `#![deny(unsafe_code)]` + a scoped `#[allow]` on
+  this one module, since loading a `.clap` dynamic library is inherently
+  unsafe (documented in the module's doc comment). `HostedPluginAdapter` in
+  the umbrella crate (`tpt-av-audio/src/plugin_bridge.rs`) wraps any
+  `HostedPlugin` as an `AudioNode` for the core graph — lives in the
+  umbrella crate, not `tpt-av-audio-core`, to avoid a core→plugin-crate
+  dependency. No MIDI/note input, no plugin directory scanning, no GUI
+  hosting, and no graceful deactivation-on-drop yet (the `PluginInstance`
+  main-thread handle is intentionally dropped once the `Send`-able
+  `StartedPluginAudioProcessor` is obtained — a documented, non-UB leak
+  per clack-host's own `Drop` impl, not full lifecycle management) — all
+  tracked as follow-ups. CI: `clap` feature job in `.github/workflows/ci.yml`
+  (stable toolchain only — clack-host's MSRV 1.85 exceeds this workspace's
+  1.75 floor, so it's excluded from the `msrv` job).
 - [x] Plugin parameter automation (ties into `Envelope` model — clip-local or session time base)
 - [x] Side-chaining and bus routing (`SidechainDucker`, `BusRouter`)
 
@@ -181,8 +204,18 @@ Dual-licensed MIT / Apache-2.0 — TPT Solutions
   in the offline renderer — also fixed tail over-write past session duration
 - [x] **docs.rs metadata + doc-example coverage**: `[package.metadata.docs.rs]`
   all-features on every crate; facade crate documents the flagship flow
-- [ ] **CI job for the cadence feature**: run the full gate with
-  `--features tpt-av-audio/cadence` in CI once tpt-cadence is pushed
+- [x] **CI job for the cadence feature**: added a `cadence` matrix job
+  (windows-latest/ubuntu-latest) to `.github/workflows/ci.yml` running
+  `cargo build`/`cargo test --workspace --features tpt-av-audio-core/cadence`,
+  now that tpt-cadence is pushed
+- [x] **Shared `tpt-av-test` real-time harness wired in**: `tpt-av-audio-core/tests/real_time_harness.rs`
+  runs the `dsp::graph` gain→pan→fade chain through `tpt-av-test-benchmark`'s
+  `TrackingAllocator`/`assert_real_time_safe!`, mirroring the hand-rolled
+  `rt_safety.rs` audit through the cross-repo harness. Wired as a `git` dep
+  (`https://github.com/tpt-solutions/tpt-av-test`, pushed, `tpt-av-test-benchmark`
+  crate) via `[workspace.dependencies]`, same pattern as tpt-cadence; added to
+  `deny.toml`'s `sources.allow-git`, plus `[bans] allow-wildcard-paths = true`
+  since cargo-deny's wildcard lint flags git deps with no `version =` pin
 - [x] **Musical time helpers**: `timeline::musical` — beat/bar lengths
   (quarter-note tempo convention, denominator-aware beat units),
   `beat_at_frame`/`frame_at_beat`, 1-based `bar_and_beat`,
@@ -191,7 +224,7 @@ Dual-licensed MIT / Apache-2.0 — TPT Solutions
 
 ## Open Questions / Risks
 - ~~`gui`/`desktop` retirement destination not yet chosen (Phase 0)~~ — **resolved:** archived under `legacy/` (reversible: can be split to a new repo later if desired)
-- `tpt-cadence` repo availability/API stability is an external blocker for Phase 4 — **still blocked; decoder registry keeps the seam ready**
+- ~~`tpt-cadence` repo availability is an external blocker for Phase 4~~ — **resolved:** pushed to GitHub, now a git dependency; opus/aac/mp3/vorbis codecs remain in progress upstream but are outside this repo's scope
 - `platform-archon` was research-gated/blocked upstream even in the old repo — **still blocked**; the capability model survives in `tpt-av-audio-io/src/backend/archon.rs`
 - PipeWire stream playback/capture needs the native `pipewire-rs` port (enumeration works via `pw-dump`)
 - CoreAudio backend is a stub until a macOS implementation (AUHAL) lands

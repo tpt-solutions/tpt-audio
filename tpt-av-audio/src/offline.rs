@@ -6,11 +6,8 @@ use std::sync::Arc;
 use tpt_av_audio_core::decode::decode_file;
 use tpt_av_audio_core::{AssetPcm, AssetStore, DecodeRegistry, TimelineRenderer, TimelineState};
 use tpt_av_audio_timeline::Session;
+use tpt_av_audio_utils::wav::{SampleFormat, WavSpec, WavWriter};
 use tpt_av_audio_utils::{AudioBuffer, AudioError};
-
-fn hound_err(e: hound::Error) -> AudioError {
-    AudioError::Decode(e.to_string())
-}
 
 /// Output format for the offline renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -25,13 +22,13 @@ pub enum WavExportFormat {
 }
 
 impl WavExportFormat {
-    fn spec_for(self, sample_rate: u32, channels: u16) -> hound::WavSpec {
+    fn spec_for(self, sample_rate: u32, channels: u16) -> WavSpec {
         let (bits_per_sample, sample_format) = match self {
-            Self::Pcm16 => (16, hound::SampleFormat::Int),
-            Self::Pcm24 => (24, hound::SampleFormat::Int),
-            Self::Float32 => (32, hound::SampleFormat::Float),
+            Self::Pcm16 => (16, SampleFormat::Int),
+            Self::Pcm24 => (24, SampleFormat::Int),
+            Self::Float32 => (32, SampleFormat::Float),
         };
-        hound::WavSpec {
+        WavSpec {
             channels,
             sample_rate,
             bits_per_sample,
@@ -98,11 +95,10 @@ pub fn render_with_store_opts(
     let mut renderer = TimelineRenderer::new(Arc::clone(&state), store);
     renderer.prepare(BUFFER_FRAMES, CHANNELS);
 
-    let mut writer = hound::WavWriter::create(
+    let mut writer = WavWriter::create(
         output.as_ref(),
         format.spec_for(session.sample_rate, CHANNELS),
-    )
-    .map_err(hound_err)?;
+    )?;
 
     let total = session.duration_frames();
     let mut buffer = AudioBuffer::new(BUFFER_FRAMES, CHANNELS);
@@ -116,18 +112,14 @@ pub fn render_with_store_opts(
             for ch in 0..CHANNELS as usize {
                 let sample = buffer.data[frame * CHANNELS as usize + ch].clamp(-1.0, 1.0);
                 match format {
-                    WavExportFormat::Pcm16 => writer
-                        .write_sample((sample * 32_767.0) as i16)
-                        .map_err(hound_err)?,
-                    WavExportFormat::Pcm24 => writer
-                        .write_sample((sample * 8_388_607.0) as i32)
-                        .map_err(hound_err)?,
-                    WavExportFormat::Float32 => writer.write_sample(sample).map_err(hound_err)?,
+                    WavExportFormat::Pcm16 => writer.write_sample((sample * 32_767.0) as i16)?,
+                    WavExportFormat::Pcm24 => writer.write_sample((sample * 8_388_607.0) as i32)?,
+                    WavExportFormat::Float32 => writer.write_sample(sample)?,
                 }
             }
         }
     }
-    writer.finalize().map_err(hound_err)?;
+    writer.finalize()?;
     Ok(())
 }
 
@@ -174,7 +166,7 @@ mod tests {
         render_with_store(&session, Arc::new(store), &out).unwrap();
 
         // Peak matches the synthesized amplitude (0.5), quantized to i16.
-        let mut reader = hound::WavReader::open(&out).unwrap();
+        let mut reader = tpt_av_audio_utils::wav::WavReader::open(&out).unwrap();
         let peak: f32 = reader
             .samples::<i16>()
             .map(|s| s.unwrap().abs() as f32 / 32_768.0)
@@ -197,7 +189,7 @@ mod tests {
             let out = dir.join(format!("{expected_bits}_export.wav"));
             render_with_store_opts(&session, Arc::new(store), &out, format).unwrap();
 
-            let reader = hound::WavReader::open(&out).unwrap();
+            let reader = tpt_av_audio_utils::wav::WavReader::open(&out).unwrap();
             assert_eq!(reader.spec().bits_per_sample, expected_bits);
             assert_eq!(reader.duration(), 4_800);
             let _ = std::fs::remove_file(&out);

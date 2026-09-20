@@ -19,6 +19,7 @@ use tpt_av_audio_core::renderer::TimelineRenderer;
 use tpt_av_audio_core::scheduler::TimelineState;
 use tpt_av_audio_core::{AssetPcm, AssetStore};
 use tpt_av_audio_timeline::{AssetId, Session};
+use tpt_av_audio_utils::wav::{SampleFormat, WavSpec, WavWriter};
 use tpt_av_audio_utils::AudioBuffer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -77,13 +78,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Offline render loop.
     let rate = session.sample_rate;
     let channels = 2;
-    let spec = hound::WavSpec {
+    let spec = WavSpec {
         channels,
         sample_rate: rate,
         bits_per_sample: 16,
-        sample_format: hound::SampleFormat::Int,
+        sample_format: SampleFormat::Int,
     };
-    let mut writer = hound::WavWriter::create(&output_path, spec)?;
+    let mut writer = WavWriter::create(&output_path, spec)?;
 
     let total_frames = session.duration_frames();
     let mut buffer = AudioBuffer::new(1024, channels);

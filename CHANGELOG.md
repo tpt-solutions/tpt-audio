@@ -119,6 +119,20 @@ buildable under `legacy/` (excluded from the workspace).
   spec2's "pure MIT" wording); root `Cargo.toml` and all crates carry
   `license = "MIT OR Apache-2.0"`.
 - README and QUICKSTART rewritten for the library-not-app model.
+- **Dropped `hound`**, the only Apache-2.0-only crate (no MIT alternative)
+  anywhere in the dependency tree: replaced with a small in-house WAV
+  reader/writer (`tpt-av-audio-utils::wav`) covering the same 8/16/24/32-bit
+  int and float formats. `deny.toml` now excludes bare `Apache-2.0` from the
+  license allow list, so a future Apache-2.0-only crate fails CI instead of
+  slipping in silently; dual `MIT OR Apache-2.0` crates are unaffected.
+- Removed the unused `log` dependency from `tpt-av-audio-io`.
+
+### Fixed
+- 24-bit WAV decoding (the no-`cadence` fallback path) scaled samples by
+  2^31 instead of 2^23, quantizing 24-bit audio down to about 1/256th of
+  full scale. Pre-existing under `hound` too (it also returns the raw
+  24-bit magnitude, not the full `i32` range); found and fixed while
+  replacing `hound`, with a new regression test in `tpt-av-audio-core::decode`.
 
 ### Retired (preserved under `legacy/`)
 - `core`, `gui`, `desktop` — the router app (egui UI, presets, i18n,

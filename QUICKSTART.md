@@ -93,7 +93,7 @@ sibling checkout (`../tpt-cadence`):
 
 ```bash
 cargo test  --all --features tpt-av-audio/cadence   # WAV + AIFF + FLAC via cadence
-cargo test  --all                                   # WAV-only fallback (hound), no sibling needed
+cargo test  --all                                   # built-in WAV-only fallback, no sibling needed
 ```
 
 Once cadence is pushed to GitHub, swap the path dependencies in the root

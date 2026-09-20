@@ -7,10 +7,12 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Real-time mixer graph, DSP, timeline rendering, and lock-free state sync"
+readme = "README.md"
+keywords = ["audio", "real-time", "mixer", "dsp", "engine"]
+categories = ["multimedia::audio", "multimedia"]
 
 [dependencies]
 arc-swap = { workspace = true }
-hound = { workspace = true }
 log = { workspace = true }
 rubato = { workspace = true }
 serde = { workspace = true }
@@ -23,9 +25,9 @@ tpt-av-cadence-aiff = { workspace = true, optional = true }
 tpt-av-cadence-flac = { workspace = true, optional = true }
 
 [features]
-# Decode through the tpt-cadence codec suite (sibling checkout): WAV,
+# Decode through the tpt-cadence codec suite (GitHub git dependency): WAV,
 # AIFF, and FLAC via cadence's real-time-safe decoders. Without this
-# feature, WAV decoding falls back to the built-in hound decoder.
+# feature, WAV decoding falls back to the built-in, dependency-free decoder.
 cadence = [
     "dep:tpt-av-cadence-core",
     "dep:tpt-av-cadence-wav",
@@ -36,6 +38,10 @@ cadence = [
 [dev-dependencies]
 # Examples play through the platform backend.
 tpt-av-audio-io = { workspace = true }
+# Shared real-time safety harness. `default-features = false` keeps the
+# crate's TrackingAllocator from being auto-installed, because this
+# package's rt_safety.rs audit declares its own counting allocator.
+tpt-av-test-benchmark = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true

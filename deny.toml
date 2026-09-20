@@ -8,12 +8,18 @@
 #
 # Note: the workspace decision overrides spec2's "pure MIT" wording — the
 # crates remain dual MIT / Apache-2.0.
+#
+# "Apache-2.0" is deliberately absent from the allow list below: this
+# workspace additionally requires every dependency to offer an MIT
+# alternative, so a crate licensed as Apache-2.0-only (no MIT term) is
+# rejected. A dual `MIT OR Apache-2.0` crate still passes, because
+# cargo-deny accepts an SPDX OR-expression as soon as one of its terms is
+# allowed, and `MIT` is.
 
 [licenses]
 version = 2
 allow = [
     "MIT",
-    "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
@@ -34,11 +40,17 @@ yanked = "deny"
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+allow-wildcard-paths = true
 
 [sources]
-# Supply-chain: dependencies may only come from crates.io (or, once tpt-cadence
-# is pushed, its GitHub repo — add it to allow-git then).
+# Supply-chain: dependencies may only come from crates.io, plus the
+# tpt-cadence codec suite (git, `cadence` feature only) and the shared
+# tpt-av-test harness (git, dev-dependency only) until they're published
+# to crates.io.
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = [
+    "https://github.com/tpt-solutions/tpt-cadence",
+    "https://github.com/tpt-solutions/tpt-av-test",
+]

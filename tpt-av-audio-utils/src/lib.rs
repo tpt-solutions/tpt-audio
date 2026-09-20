@@ -6,6 +6,7 @@
 //! - [`buffer`] — the canonical interleaved [`buffer::AudioBuffer`].
 //! - [`time`] — frame/second/[`time::Milliseconds`] conversions.
 //! - [`error`] — the shared [`error::AudioError`] enum.
+//! - [`wav`] — a minimal RIFF/WAVE reader and writer.
 //!
 //! It intentionally has no external dependencies so every other crate in the
 //! workspace can build on it without licensing or compile-time risk.
@@ -17,6 +18,7 @@ pub mod buffer;
 pub mod error;
 pub mod sample;
 pub mod time;
+pub mod wav;
 
 pub use buffer::AudioBuffer;
 pub use error::AudioError;

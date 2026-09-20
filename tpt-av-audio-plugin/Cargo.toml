@@ -7,11 +7,22 @@ authors.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Plugin hosting foundation: parameters, automation envelopes, buses, and side-chaining"
+readme = "README.md"
+keywords = ["audio", "clap", "plugin", "hosting", "automation"]
+categories = ["multimedia::audio", "api-bindings"]
 
 [dependencies]
 serde = { workspace = true }
 tpt-av-audio-timeline = { workspace = true }
 tpt-av-audio-utils = { workspace = true }
+clack-host = { workspace = true, optional = true }
+clack-extensions = { workspace = true, optional = true }
+
+[features]
+# CLAP hosting via clack-host (crates.io, MIT OR Apache-2.0). VST3 is not
+# planned: the Steinberg VST3 SDK's GPLv3-or-proprietary dual license
+# conflicts with this workspace's MIT/Apache-2.0-only deny.toml policy.
+clap = ["dep:clack-host", "dep:clack-extensions"]
 
 [package.metadata.docs.rs]
 all-features = true
