@@ -8,3 +8,5 @@ Cargo.lock
 *~
 .DS_Store
 Thumbs.db
+# tpt-weave working state
+/.tpt-weave/
